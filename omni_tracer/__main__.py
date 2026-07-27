@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import signal
 import sys
 import types
@@ -12,14 +13,16 @@ from omni_tracer.hooks.process_hook import ProcessHook
 from omni_tracer.hooks.thread_hook import ThreadHook
 from omni_tracer.hooks.trace_hook import TraceHook
 
+
 def main() -> None:
     args, passthrough = parse_args()
 
+    output_dir = os.path.dirname(os.path.abspath(args.output))
     graph = TraceGraph()
     path_filter = PathFilter()
     trace_hook = TraceHook(graph, path_filter)
     thread_hook = ThreadHook(trace_hook._global_trace)
-    process_hook = ProcessHook(graph)
+    process_hook = ProcessHook(output_dir)
     finalized = False
 
     def _finalize() -> None:
@@ -32,21 +35,12 @@ def main() -> None:
         process_hook.uninstall()
         serialize(graph, args.output)
         print(f"Trace written to {args.output}")
-
-    def _shutdown(signum: int, frame: types.FrameType | None) -> None:
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        _finalize()
-        import os
-        os.killpg(os.getpgid(os.getpid()), signal.SIGTERM)
-        process_hook.drain_and_merge()
-        serialize(graph, args.output)
-        print(f"Subprocess traces merged into {args.output}")
-        os._exit(0)
+        print(f"Subprocess traces written to {output_dir}/")
 
     _install_hooks(_finalize, path_filter, graph)
 
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, lambda s, f: (_finalize(), sys.exit(0)))
+    signal.signal(signal.SIGTERM, lambda s, f: (_finalize(), sys.exit(0)))
 
     sys.argv = passthrough
     from vllm_omni.entrypoints.cli.main import main as vllm_omni_main
