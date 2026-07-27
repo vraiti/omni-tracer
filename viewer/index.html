@@ -83,6 +83,7 @@ body {
 #hierarchy {
   padding: 16px;
   display: none;
+  position: relative;
 }
 
 .process-box {
@@ -195,6 +196,33 @@ body {
   color: #888;
   font-size: 16px;
 }
+
+#edge-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 50;
+  overflow: visible;
+}
+
+#edge-svg path {
+  fill: none;
+  stroke: #5a9;
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+
+#edge-svg path.edge-highlight {
+  stroke: #8cf;
+  stroke-width: 2.5;
+  opacity: 1;
+}
+
+#edge-svg marker path {
+  fill: #5a9;
+  stroke: none;
+}
 </style>
 </head>
 <body>
@@ -223,6 +251,7 @@ body {
 
 <div id="tooltip" class="tooltip hidden"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/elkjs@0.10.0/lib/elk.bundled.js"></script>
 <script>
 const dropZone = document.getElementById("drop-zone");
 const hierarchy = document.getElementById("hierarchy");
@@ -235,11 +264,14 @@ const fileInputDrop = document.getElementById("file-input-drop");
 const loading = document.getElementById("loading");
 const tooltip = document.getElementById("tooltip");
 
+const elk = new ELK();
+
 let traceData = null;
 let traceFileName = null;
 let parentMap = {};
 let rendered = {};
 let collapsedSet = new Set();
+let refEdges = [];
 
 function configKey() {
   return "omni-tracer:" + (traceFileName || "unknown");
@@ -274,6 +306,7 @@ function toggleCollapse(uuid, box) {
     box.classList.add("collapsed");
   }
   saveConfig();
+  scheduleEdgeLayout();
 }
 
 dropZone.addEventListener("click", () => fileInputDrop.click());
@@ -424,16 +457,10 @@ function buildAndRender() {
 function render() {
   hierarchy.innerHTML = "";
   rendered = {};
+  refEdges = [];
 
   const filterText = filterInput.value.toLowerCase();
   const showIso = showIsolated.checked;
-
-  const processes = {};
-  for (const [uuid, obj] of Object.entries(traceData)) {
-    const proc = obj.process || "unknown";
-    if (!processes[proc]) processes[proc] = [];
-    processes[proc].push(uuid);
-  }
 
   let totalObjects = Object.keys(traceData).length;
 
@@ -479,6 +506,8 @@ function render() {
 
   const totalShown = countVisible();
   statsEl.textContent = totalShown + " / " + totalObjects + " objects shown";
+
+  requestAnimationFrame(() => scheduleEdgeLayout());
 }
 
 function countVisible() {
@@ -559,13 +588,13 @@ function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
     });
 
     let hasVisibleChild = false;
-    for (const [child, attrName] of sortedOwns) {
+    for (const [child, childAttr] of sortedOwns) {
       let el;
       if (traceData[child] && creationOrder[child] < creationOrder[uuid]) {
         if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
-        el = renderRef(child, attrName);
+        el = renderRef(child, childAttr);
       } else {
-        el = renderObject(child, depth + 1, new Set(visited), filterText, showIso, attrName);
+        el = renderObject(child, depth + 1, new Set(visited), filterText, showIso, childAttr);
       }
       if (el) {
         childrenDiv.appendChild(el);
@@ -590,10 +619,17 @@ function renderRef(uuid, attrName) {
   const className = getClassName(obj.ref);
   el.textContent = (attrName ? attrName + ": " : "") + className + " ⇗";
   el.dataset.uuid = uuid;
+  el.dataset.refTarget = uuid;
 
-  el.addEventListener("mouseenter", e => showTooltip(e, uuid));
+  el.addEventListener("mouseenter", e => {
+    showTooltip(e, uuid);
+    highlightEdges(uuid, el);
+  });
   el.addEventListener("mousemove", e => moveTooltip(e));
-  el.addEventListener("mouseleave", () => hideTooltip());
+  el.addEventListener("mouseleave", () => {
+    hideTooltip();
+    clearEdgeHighlights();
+  });
 
   el.addEventListener("click", () => {
     const target = hierarchy.querySelector(`.obj-box[data-uuid="${uuid}"]`);
@@ -606,6 +642,256 @@ function renderRef(uuid, attrName) {
 
   return el;
 }
+
+// --- Edge routing with ELK ---
+
+let edgeLayoutTimer = null;
+
+function scheduleEdgeLayout() {
+  clearTimeout(edgeLayoutTimer);
+  edgeLayoutTimer = setTimeout(layoutEdges, 100);
+}
+
+function layoutEdges() {
+  const refEls = hierarchy.querySelectorAll(".obj-ref[data-ref-target]");
+  if (refEls.length === 0) {
+    clearEdgeSvg();
+    return;
+  }
+
+  const hRect = hierarchy.getBoundingClientRect();
+  const scrollLeft = hierarchy.scrollLeft || 0;
+  const scrollTop = hierarchy.scrollTop || 0;
+
+  const edges = [];
+  const nodeSet = new Set();
+  const nodeRects = {};
+
+  for (const refEl of refEls) {
+    const targetUuid = refEl.dataset.refTarget;
+    const targetEl = hierarchy.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
+    if (!targetEl) continue;
+
+    const refRect = refEl.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+
+    const refId = "ref_" + edges.length;
+    nodeRects[refId] = {
+      x: refRect.left - hRect.left + scrollLeft,
+      y: refRect.top - hRect.top + scrollTop,
+      w: refRect.width,
+      h: refRect.height,
+      el: refEl,
+    };
+
+    const tgtId = "tgt_" + targetUuid;
+    if (!nodeRects[tgtId]) {
+      nodeRects[tgtId] = {
+        x: targetRect.left - hRect.left + scrollLeft,
+        y: targetRect.top - hRect.top + scrollTop,
+        w: targetRect.width,
+        h: targetRect.height,
+        el: targetEl,
+      };
+    }
+
+    nodeSet.add(refId);
+    nodeSet.add(tgtId);
+
+    edges.push({
+      id: "e_" + edges.length,
+      sources: [refId],
+      targets: [tgtId],
+      refEl: refEl,
+      targetUuid: targetUuid,
+    });
+  }
+
+  if (edges.length === 0) {
+    clearEdgeSvg();
+    return;
+  }
+
+  const elkNodes = [];
+  for (const nid of nodeSet) {
+    const r = nodeRects[nid];
+    elkNodes.push({
+      id: nid,
+      x: r.x,
+      y: r.y,
+      width: r.w,
+      height: r.h,
+    });
+  }
+
+  const elkGraph = {
+    id: "root",
+    layoutOptions: {
+      "elk.algorithm": "fixed",
+      "elk.edgeRouting": "ORTHOGONAL",
+    },
+    children: elkNodes,
+    edges: edges.map(e => ({
+      id: e.id,
+      sources: e.sources,
+      targets: e.targets,
+    })),
+  };
+
+  elk.layout(elkGraph).then(result => {
+    drawEdges(result, nodeRects, edges);
+  }).catch(() => {
+    drawEdgesFallback(nodeRects, edges);
+  });
+}
+
+function drawEdges(elkResult, nodeRects, edges) {
+  clearEdgeSvg();
+
+  const hRect = hierarchy.getBoundingClientRect();
+  const svgNs = "http://www.w3.org/2000/svg";
+
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.id = "edge-svg";
+  svg.setAttribute("width", hierarchy.scrollWidth);
+  svg.setAttribute("height", hierarchy.scrollHeight);
+
+  const defs = document.createElementNS(svgNs, "defs");
+  const marker = document.createElementNS(svgNs, "marker");
+  marker.setAttribute("id", "arrowhead");
+  marker.setAttribute("markerWidth", "8");
+  marker.setAttribute("markerHeight", "6");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "3");
+  marker.setAttribute("orient", "auto");
+  const arrow = document.createElementNS(svgNs, "path");
+  arrow.setAttribute("d", "M0,0 L8,3 L0,6 Z");
+  marker.appendChild(arrow);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  const elkEdgeMap = {};
+  if (elkResult.edges) {
+    for (const e of elkResult.edges) {
+      elkEdgeMap[e.id] = e;
+    }
+  }
+
+  for (const edge of edges) {
+    const elkEdge = elkEdgeMap[edge.id];
+    const srcRect = nodeRects[edge.sources[0]];
+    const tgtRect = nodeRects[edge.targets[0]];
+
+    let pathD;
+
+    if (elkEdge && elkEdge.sections && elkEdge.sections.length > 0) {
+      const section = elkEdge.sections[0];
+      const pts = [];
+      pts.push(section.startPoint);
+      if (section.bendPoints) pts.push(...section.bendPoints);
+      pts.push(section.endPoint);
+      pathD = "M" + pts.map(p => p.x + "," + p.y).join(" L");
+    } else {
+      pathD = buildOrthogonalPath(srcRect, tgtRect);
+    }
+
+    const path = document.createElementNS(svgNs, "path");
+    path.setAttribute("d", pathD);
+    path.setAttribute("marker-end", "url(#arrowhead)");
+    path.dataset.edgeId = edge.id;
+    path.dataset.targetUuid = edge.targetUuid;
+    svg.appendChild(path);
+  }
+
+  hierarchy.appendChild(svg);
+}
+
+function drawEdgesFallback(nodeRects, edges) {
+  clearEdgeSvg();
+
+  const svgNs = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.id = "edge-svg";
+  svg.setAttribute("width", hierarchy.scrollWidth);
+  svg.setAttribute("height", hierarchy.scrollHeight);
+
+  const defs = document.createElementNS(svgNs, "defs");
+  const marker = document.createElementNS(svgNs, "marker");
+  marker.setAttribute("id", "arrowhead");
+  marker.setAttribute("markerWidth", "8");
+  marker.setAttribute("markerHeight", "6");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "3");
+  marker.setAttribute("orient", "auto");
+  const arrow = document.createElementNS(svgNs, "path");
+  arrow.setAttribute("d", "M0,0 L8,3 L0,6 Z");
+  marker.appendChild(arrow);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  for (const edge of edges) {
+    const srcRect = nodeRects[edge.sources[0]];
+    const tgtRect = nodeRects[edge.targets[0]];
+
+    const pathD = buildOrthogonalPath(srcRect, tgtRect);
+
+    const path = document.createElementNS(svgNs, "path");
+    path.setAttribute("d", pathD);
+    path.setAttribute("marker-end", "url(#arrowhead)");
+    path.dataset.edgeId = edge.id;
+    path.dataset.targetUuid = edge.targetUuid;
+    svg.appendChild(path);
+  }
+
+  hierarchy.appendChild(svg);
+}
+
+function buildOrthogonalPath(src, tgt) {
+  const sx = src.x + src.w;
+  const sy = src.y + src.h / 2;
+
+  const tx = tgt.x;
+  const ty = tgt.y + tgt.h / 2;
+
+  const midX = sx + 20;
+
+  if (Math.abs(sy - ty) < 2) {
+    return `M${sx},${sy} L${tx},${ty}`;
+  }
+
+  if (midX < tx) {
+    return `M${sx},${sy} L${midX},${sy} L${midX},${ty} L${tx},${ty}`;
+  }
+
+  const midY = (sy + ty) / 2;
+  const farX = Math.max(sx, tx) + 30;
+  return `M${sx},${sy} L${farX},${sy} L${farX},${midY} L${tx - 20},${midY} L${tx - 20},${ty} L${tx},${ty}`;
+}
+
+function clearEdgeSvg() {
+  const old = document.getElementById("edge-svg");
+  if (old) old.remove();
+}
+
+function highlightEdges(targetUuid, refEl) {
+  const svg = document.getElementById("edge-svg");
+  if (!svg) return;
+  for (const path of svg.querySelectorAll("path[data-target-uuid]")) {
+    if (path.dataset.targetUuid === targetUuid) {
+      path.classList.add("edge-highlight");
+    }
+  }
+}
+
+function clearEdgeHighlights() {
+  const svg = document.getElementById("edge-svg");
+  if (!svg) return;
+  for (const path of svg.querySelectorAll(".edge-highlight")) {
+    path.classList.remove("edge-highlight");
+  }
+}
+
+// --- Tooltips ---
 
 function showTooltip(e, uuid) {
   const obj = traceData[uuid];
@@ -646,9 +932,12 @@ function hideTooltip() {
 let filterTimeout = null;
 filterInput.addEventListener("input", () => {
   clearTimeout(filterTimeout);
-  filterTimeout = setTimeout(render, 200);
+  filterTimeout = setTimeout(() => { render(); }, 200);
 });
 showIsolated.addEventListener("change", render);
+
+window.addEventListener("resize", scheduleEdgeLayout);
+window.addEventListener("scroll", scheduleEdgeLayout, true);
 </script>
 </body>
 </html>
