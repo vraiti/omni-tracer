@@ -12,6 +12,24 @@ class OwnershipHook:
         self.graph = graph
         self.path_filter = path_filter
         self._patched_classes: set[int] = set()
+        self._module_hook_handle = None
+
+    def install_module_hook(self) -> None:
+        from torch.nn.modules.module import register_module_module_registration_hook
+
+        graph = self.graph
+
+        def _on_register(parent: Any, name: str, child: Any) -> None:
+            child_uuid = graph.get_object_uuid(id(child))
+            if child_uuid is not None:
+                graph.record_ownership(id(parent), id(child), name)
+
+        self._module_hook_handle = register_module_module_registration_hook(_on_register)
+
+    def uninstall_module_hook(self) -> None:
+        if self._module_hook_handle is not None:
+            self._module_hook_handle.remove()
+            self._module_hook_handle = None
 
     def patch_class(self, cls: type) -> None:
         cls_id = id(cls)

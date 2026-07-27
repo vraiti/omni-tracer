@@ -237,6 +237,15 @@ body {
     <input type="checkbox" id="show-isolated">
     Show isolated objects
   </label>
+  <div style="position: relative; display: inline-block;">
+    <button id="exclude-btn" style="background:#2a2a2a; border:1px solid #555; color:#d4d4d4; padding:4px 12px; cursor:pointer; font-family:inherit; font-size:13px;">Exclude classes ▾</button>
+    <div id="exclude-panel" class="hidden" style="position:absolute; top:100%; left:0; background:#1a1a1a; border:1px solid #555; max-height:400px; overflow-y:auto; z-index:150; min-width:280px; padding:6px 0;">
+      <div style="padding:4px 10px; border-bottom:1px solid #333;">
+        <input type="text" id="exclude-filter" placeholder="Search classes..." style="background:#0e0e0e; border:1px solid #444; color:#d4d4d4; padding:3px 6px; font-family:inherit; font-size:12px; width:100%;">
+      </div>
+      <div id="exclude-list" style="padding:4px 0;"></div>
+    </div>
+  </div>
   <span id="stats"></span>
 </div>
 
@@ -271,6 +280,7 @@ let traceFileName = null;
 let parentMap = {};
 let rendered = {};
 let collapsedSet = new Set();
+let excludedClasses = new Set();
 let refEdges = [];
 
 function configKey() {
@@ -283,16 +293,22 @@ function loadConfig() {
     if (raw) {
       const cfg = JSON.parse(raw);
       collapsedSet = new Set(cfg.collapsed || []);
+      excludedClasses = new Set(cfg.excluded || []);
     } else {
       collapsedSet = new Set();
+      excludedClasses = new Set();
     }
-  } catch { collapsedSet = new Set(); }
+  } catch {
+    collapsedSet = new Set();
+    excludedClasses = new Set();
+  }
 }
 
 function saveConfig() {
   try {
     localStorage.setItem(configKey(), JSON.stringify({
       collapsed: Array.from(collapsedSet),
+      excluded: Array.from(excludedClasses),
     }));
   } catch {}
 }
@@ -331,6 +347,7 @@ function loadFile(file) {
         const raw = JSON.parse(e.target.result);
         traceData = raw.objects || {};
         loadConfig();
+        updateExcludeBtn();
         buildAndRender();
       } catch (err) {
         alert("Failed to parse JSON: " + err.message);
@@ -394,11 +411,28 @@ function buildCreationOrder(objects) {
   return order;
 }
 
+const _reachCache = {};
+function canReach(objects, from, to, visited) {
+  const key = from + ">" + to;
+  if (key in _reachCache) return _reachCache[key];
+  if (visited.has(from)) return false;
+  visited.add(from);
+  for (const child of getOwnedUuids(objects[from] || {})) {
+    if (child === to || canReach(objects, child, to, visited)) {
+      _reachCache[key] = true;
+      return true;
+    }
+  }
+  _reachCache[key] = false;
+  return false;
+}
+
 function buildEffectiveParentMap(objects, rawParentMap, creationOrder) {
   const ep = {};
   for (const [child, parents] of Object.entries(rawParentMap)) {
     const validParents = parents.filter(p => {
-      return creationOrder[p] < creationOrder[child];
+      if (creationOrder[p] < creationOrder[child]) return true;
+      return !canReach(objects, child, p, new Set());
     });
     if (validParents.length > 0) {
       ep[child] = validParents;
@@ -417,7 +451,7 @@ function findRoots(objects, effectiveParentMap) {
     visited.add(uuid);
     rooted.add(uuid);
     for (const child of getOwnedUuids(objects[uuid])) {
-      if (objects[child] && creationOrder[child] > creationOrder[uuid]) {
+      if (objects[child] && !canReach(objects, child, uuid, new Set())) {
         markReachable(child, visited);
       }
     }
@@ -445,6 +479,7 @@ let creationOrder = {};
 let effectiveParentMap = {};
 
 function buildAndRender() {
+  for (const k in _reachCache) delete _reachCache[k];
   parentMap = buildParentMap(traceData);
   creationOrder = buildCreationOrder(traceData);
   effectiveParentMap = buildEffectiveParentMap(traceData, parentMap, creationOrder);
@@ -532,9 +567,17 @@ function subtreeMatchesFilter(uuid, filterText, visited) {
   return false;
 }
 
+function isExcluded(uuid) {
+  const obj = traceData[uuid];
+  if (!obj) return false;
+  return excludedClasses.has(getClassName(obj.ref));
+}
+
 function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
   const obj = traceData[uuid];
   if (!obj) return null;
+
+  if (isExcluded(uuid)) return null;
 
   if (!showIso && !participatesInOwnership(uuid, traceData, parentMap)) return null;
 
@@ -590,7 +633,7 @@ function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
     let hasVisibleChild = false;
     for (const [child, childAttr] of sortedOwns) {
       let el;
-      if (traceData[child] && creationOrder[child] < creationOrder[uuid]) {
+      if (traceData[child] && canReach(traceData, child, uuid, new Set())) {
         if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
         el = renderRef(child, childAttr);
       } else {
@@ -613,6 +656,7 @@ function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
 function renderRef(uuid, attrName) {
   const obj = traceData[uuid];
   if (!obj) return null;
+  if (isExcluded(uuid)) return null;
 
   const el = document.createElement("div");
   el.className = "obj-ref";
@@ -938,6 +982,86 @@ showIsolated.addEventListener("change", render);
 
 window.addEventListener("resize", scheduleEdgeLayout);
 window.addEventListener("scroll", scheduleEdgeLayout, true);
+
+// --- Exclude classes panel ---
+
+const excludeBtn = document.getElementById("exclude-btn");
+const excludePanel = document.getElementById("exclude-panel");
+const excludeFilter = document.getElementById("exclude-filter");
+const excludeList = document.getElementById("exclude-list");
+
+excludeBtn.addEventListener("click", e => {
+  e.stopPropagation();
+  excludePanel.classList.toggle("hidden");
+  if (!excludePanel.classList.contains("hidden")) {
+    populateExcludePanel();
+    excludeFilter.focus();
+  }
+});
+
+document.addEventListener("click", e => {
+  if (!excludePanel.contains(e.target) && e.target !== excludeBtn) {
+    excludePanel.classList.add("hidden");
+  }
+});
+
+excludeFilter.addEventListener("click", e => e.stopPropagation());
+excludeFilter.addEventListener("input", () => populateExcludePanel());
+
+function updateExcludeBtn() {
+  const n = excludedClasses.size;
+  excludeBtn.textContent = n > 0 ? `Exclude classes (${n}) ▾` : "Exclude classes ▾";
+}
+
+function getClassCounts() {
+  const counts = {};
+  for (const obj of Object.values(traceData || {})) {
+    const name = getClassName(obj.ref);
+    counts[name] = (counts[name] || 0) + 1;
+  }
+  return counts;
+}
+
+function populateExcludePanel() {
+  const counts = getClassCounts();
+  const search = excludeFilter.value.toLowerCase();
+  const sorted = Object.entries(counts)
+    .filter(([name]) => !search || name.toLowerCase().includes(search))
+    .sort((a, b) => a[0].localeCompare(b[0]));
+
+  excludeList.innerHTML = "";
+  for (const [name, count] of sorted) {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex; align-items:center; gap:6px; padding:3px 10px; cursor:pointer; font-size:12px;";
+    row.addEventListener("mouseenter", () => row.style.background = "#2a2a2a");
+    row.addEventListener("mouseleave", () => row.style.background = "");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = excludedClasses.has(name);
+    cb.style.accentColor = "#c55";
+    cb.addEventListener("change", () => {
+      if (cb.checked) excludedClasses.add(name);
+      else excludedClasses.delete(name);
+      saveConfig();
+      updateExcludeBtn();
+      render();
+    });
+
+    const text = document.createElement("span");
+    text.textContent = name;
+    text.style.flex = "1";
+
+    const badge = document.createElement("span");
+    badge.textContent = count;
+    badge.style.cssText = "color:#666; font-size:11px;";
+
+    row.appendChild(cb);
+    row.appendChild(text);
+    row.appendChild(badge);
+    excludeList.appendChild(row);
+  }
+}
 </script>
 </body>
 </html>

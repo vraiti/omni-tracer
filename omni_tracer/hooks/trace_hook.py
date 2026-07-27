@@ -20,11 +20,13 @@ class TraceHook:
         self.enabled = True
 
     def install(self) -> None:
+        self.ownership.install_module_hook()
         sys.settrace(self._global_trace)
 
     def uninstall(self) -> None:
         self.enabled = False
         sys.settrace(None)
+        self.ownership.uninstall_module_hook()
 
     def _make_ref(self, code: types.CodeType) -> str:
         return f"{code.co_filename}:{code.co_qualname}"

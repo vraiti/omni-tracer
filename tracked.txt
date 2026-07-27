@@ -1,5 +1,8 @@
 # External classes to track in omni_tracer
 fastapi.applications.FastAPI
+fastapi.routing.APIRouter
+starlette.routing.Router
+starlette.datastructures.State
 janus.Queue
 janus._SyncQueueProxy
 janus._AsyncQueueProxy
