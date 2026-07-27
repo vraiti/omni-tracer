@@ -8,7 +8,7 @@ import sys
 from omni_tracer.cli import parse_args
 
 
-def _traced_server(argv: list[str], output_file: str) -> None:
+def _traced_server(argv: list[str], output_file: str, tracked_classes: list[str] | None = None) -> None:
     from omni_tracer.core.graph import TraceGraph
     from omni_tracer.core.serializer import serialize
     from omni_tracer.filters import PathFilter
@@ -19,6 +19,8 @@ def _traced_server(argv: list[str], output_file: str) -> None:
     output_dir = os.path.dirname(os.path.abspath(output_file))
     graph = TraceGraph()
     path_filter = PathFilter()
+    for cls_name in (tracked_classes or []):
+        path_filter.track_class(cls_name)
     trace_hook = TraceHook(graph, path_filter)
     thread_hook = ThreadHook(trace_hook._global_trace)
     process_hook = ProcessHook(output_dir)
@@ -57,7 +59,7 @@ def main() -> None:
 
     proc = multiprocessing.Process(
         target=_traced_server,
-        args=(passthrough, args.output),
+        args=(passthrough, args.output, args.track),
     )
     proc.start()
     proc.join()

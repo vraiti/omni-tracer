@@ -15,6 +15,12 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
         default="trace.json",
         help="Output JSON file path (default: trace.json)",
     )
+    parser.add_argument(
+        "--track",
+        action="append",
+        default=[],
+        help="External class to track (e.g. fastapi.FastAPI). May be repeated.",
+    )
     try:
         sep = sys.argv.index("--")
         tracer_args = sys.argv[1:sep]

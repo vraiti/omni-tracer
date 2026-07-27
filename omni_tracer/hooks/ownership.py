@@ -23,7 +23,7 @@ class OwnershipHook:
         except (TypeError, OSError):
             return
 
-        if not self.path_filter.is_in_scope(source_file):
+        if not self.path_filter.is_in_scope(source_file) and not self.path_filter.is_tracked_class(cls):
             return
 
         self._patched_classes.add(cls_id)

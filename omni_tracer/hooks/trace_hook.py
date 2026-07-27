@@ -48,6 +48,10 @@ class TraceHook:
         filename = code.co_filename
 
         if not self.path_filter.is_in_scope(filename):
+            if code.co_name == "__init__":
+                self_obj = frame.f_locals.get("self")
+                if self_obj is not None and self.path_filter.is_tracked_class(type(self_obj)):
+                    self._handle_init(frame, code, self_obj)
             return None
 
         ref = self._make_ref(code)
