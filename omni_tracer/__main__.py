@@ -23,7 +23,7 @@ def _traced_server(argv: list[str], output_file: str, tracked_classes: list[str]
         path_filter.track_class(cls_name)
     trace_hook = TraceHook(graph, path_filter)
     thread_hook = ThreadHook(trace_hook._global_trace)
-    process_hook = ProcessHook(output_dir)
+    process_hook = ProcessHook(output_dir, tracked_classes)
 
     def _write_trace() -> None:
         trace_hook.uninstall()
