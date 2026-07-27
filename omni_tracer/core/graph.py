@@ -8,13 +8,18 @@ from omni_tracer.core.node import FunctionNode, ObjectNode
 
 
 class TraceGraph:
-    def __init__(self, process_uuid: str | None = None) -> None:
+    def __init__(
+        self,
+        process_uuid: str | None = None,
+        registry: TraceGraph | None = None,
+    ) -> None:
         self.process_uuid = process_uuid or str(uuid.uuid4())
         self.functions: dict[str, FunctionNode] = {}
         self.objects: dict[str, ObjectNode] = {}
         self._lock = threading.Lock()
         self._local = threading.local()
         self._obj_id_to_uuid: dict[int, str] = {}
+        self._registry = registry
 
     def _call_stack(self) -> list[str]:
         stack = getattr(self._local, "call_stack", None)
@@ -48,6 +53,15 @@ class TraceGraph:
     def record_instantiation(
         self, ref: str, obj_id: int, caller_uuid: str | None = None
     ) -> str:
+        existing = self._resolve_object_uuid(obj_id)
+        if existing is not None:
+            with self._lock:
+                self._obj_id_to_uuid[obj_id] = existing
+                if caller_uuid:
+                    parent = self.functions.get(caller_uuid)
+                    if parent:
+                        parent.instantiates.append(existing)
+            return existing
         node = ObjectNode(ref=ref, process=self.process_uuid)
         with self._lock:
             self.objects[node.uuid] = node
@@ -60,8 +74,8 @@ class TraceGraph:
 
     def record_ownership(self, owner_id: int, owned_id: int) -> bool:
         with self._lock:
-            owner_uuid = self._obj_id_to_uuid.get(owner_id)
-            owned_uuid = self._obj_id_to_uuid.get(owned_id)
+            owner_uuid = self._resolve_object_uuid(owner_id)
+            owned_uuid = self._resolve_object_uuid(owned_id)
             if owner_uuid and owned_uuid and owner_uuid != owned_uuid:
                 owner_node = self.objects.get(owner_uuid)
                 if owner_node and owned_uuid not in owner_node.owns:
@@ -71,7 +85,15 @@ class TraceGraph:
 
     def get_object_uuid(self, obj_id: int) -> str | None:
         with self._lock:
-            return self._obj_id_to_uuid.get(obj_id)
+            return self._resolve_object_uuid(obj_id)
+
+    def _resolve_object_uuid(self, obj_id: int) -> str | None:
+        uuid = self._obj_id_to_uuid.get(obj_id)
+        if uuid is not None:
+            return uuid
+        if self._registry is not None:
+            return self._registry.get_object_uuid(obj_id)
+        return None
 
     def current_caller(self) -> str | None:
         stack = self._call_stack()

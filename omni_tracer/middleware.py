@@ -14,7 +14,11 @@ TRACE_HEADER = "x-trace"
 TRACE_DIR = "/tmp/omni_traces"
 
 
-def wrap_app_with_tracing(app: Any, path_filter: PathFilter) -> None:
+def wrap_app_with_tracing(
+    app: Any,
+    path_filter: PathFilter,
+    registry: TraceGraph | None = None,
+) -> None:
     os.makedirs(TRACE_DIR, exist_ok=True)
     original_call = app.__class__.__call__
 
@@ -26,7 +30,7 @@ def wrap_app_with_tracing(app: Any, path_filter: PathFilter) -> None:
         if headers.get(TRACE_HEADER.encode(), b"").lower() != b"true":
             return await original_call(self, scope, receive, send)
 
-        graph = TraceGraph()
+        graph = TraceGraph(registry=registry)
         hook = TraceHook(graph, path_filter)
 
         trace_id = str(uuid.uuid4())[:8]

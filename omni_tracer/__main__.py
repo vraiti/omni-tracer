@@ -12,9 +12,6 @@ from omni_tracer.hooks.process_hook import ProcessHook
 from omni_tracer.hooks.thread_hook import ThreadHook
 from omni_tracer.hooks.trace_hook import TraceHook
 
-_captured_app = None
-
-
 def main() -> None:
     args, passthrough = parse_args()
 
@@ -41,7 +38,7 @@ def main() -> None:
         _finalize()
         sys.exit(0)
 
-    _install_hooks(_finalize, path_filter)
+    _install_hooks(_finalize, path_filter, graph)
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -61,10 +58,12 @@ def main() -> None:
         _finalize()
 
 
-def _install_hooks(finalize_cb: callable, path_filter: PathFilter) -> None:
-    global _captured_app
+def _install_hooks(
+    finalize_cb: callable,
+    path_filter: PathFilter,
+    init_graph: TraceGraph,
+) -> None:
     import vllm_omni.entrypoints.openai.api_server as omni_api
-    import vllm.entrypoints.openai.api_server as vllm_api
 
     _original_init = omni_api.omni_init_app_state
     _original_build = omni_api.build_openai_app
@@ -72,7 +71,7 @@ def _install_hooks(finalize_cb: callable, path_filter: PathFilter) -> None:
     def _patched_build(*args, **kwargs):
         from omni_tracer.middleware import wrap_app_with_tracing
         app = _original_build(*args, **kwargs)
-        wrap_app_with_tracing(app, path_filter)
+        wrap_app_with_tracing(app, path_filter, registry=init_graph)
         print(
             "Trace middleware installed"
             " (send X-Trace: true header to trace a request)"
