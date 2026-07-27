@@ -31,7 +31,7 @@ class ProcessHook:
         ) -> None:
             if target is not None:
                 process_uuid = str(uuid.uuid4())
-                wrapped = _wrap_target(
+                wrapped = _TracedTarget(
                     target, process_uuid, hook.data_queue
                 )
                 _original_process_init(
@@ -69,27 +69,33 @@ class ProcessHook:
                 break
 
 
-def _wrap_target(
-    original_target: Any,
-    process_uuid: str,
-    data_queue: multiprocessing.Queue,
-) -> Any:
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+class _TracedTarget:
+    """Picklable callable that wraps a subprocess target with tracing."""
+
+    def __init__(
+        self,
+        original_target: Any,
+        process_uuid: str,
+        data_queue: multiprocessing.Queue,
+    ) -> None:
+        self.original_target = original_target
+        self.process_uuid = process_uuid
+        self.data_queue = data_queue
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         from omni_tracer.core.graph import TraceGraph
         from omni_tracer.filters import PathFilter
         from omni_tracer.hooks.trace_hook import TraceHook
 
-        local_graph = TraceGraph(process_uuid=process_uuid)
+        local_graph = TraceGraph(process_uuid=self.process_uuid)
         path_filter = PathFilter()
         trace_hook = TraceHook(local_graph, path_filter)
         trace_hook.install()
         try:
-            return original_target(*args, **kwargs)
+            return self.original_target(*args, **kwargs)
         finally:
             trace_hook.uninstall()
             try:
-                data_queue.put(local_graph.to_dict())
+                self.data_queue.put(local_graph.to_dict())
             except Exception:
                 pass
-
-    return wrapper
