@@ -39,9 +39,6 @@ def main() -> None:
         _finalize()
         sys.exit(0)
 
-    trace_hook.install()
-    thread_hook.install()
-    process_hook.install()
     _install_stop_hook(_finalize)
 
     signal.signal(signal.SIGINT, _signal_handler)
@@ -49,6 +46,10 @@ def main() -> None:
 
     sys.argv = passthrough
     from vllm_omni.entrypoints.cli.main import main as vllm_omni_main
+
+    trace_hook.install()
+    thread_hook.install()
+    process_hook.install()
 
     try:
         vllm_omni_main()
