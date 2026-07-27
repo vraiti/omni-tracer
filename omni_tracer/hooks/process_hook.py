@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import multiprocessing
 import multiprocessing.process
+import os
+import tempfile
 import uuid
 from typing import Any
 
@@ -10,11 +13,13 @@ from omni_tracer.core.graph import TraceGraph
 
 _original_process_init = multiprocessing.process.BaseProcess.__init__
 
+_TRACE_OUTPUT_DIR = tempfile.mkdtemp(prefix="omni_tracer_")
+
 
 class ProcessHook:
     def __init__(self, parent_graph: TraceGraph) -> None:
         self.parent_graph = parent_graph
-        self.data_queue: multiprocessing.Queue = multiprocessing.Queue()
+        self._subprocess_files: list[str] = []
 
     def install(self) -> None:
         hook = self
@@ -31,8 +36,12 @@ class ProcessHook:
         ) -> None:
             if target is not None:
                 process_uuid = str(uuid.uuid4())
+                output_file = os.path.join(
+                    _TRACE_OUTPUT_DIR, f"{process_uuid}.json"
+                )
+                hook._subprocess_files.append(output_file)
                 wrapped = _TracedTarget(
-                    target, process_uuid, hook.data_queue
+                    target, process_uuid, output_file
                 )
                 _original_process_init(
                     proc_self,
@@ -60,13 +69,21 @@ class ProcessHook:
         multiprocessing.process.BaseProcess.__init__ = _original_process_init
 
     def drain_and_merge(self) -> None:
-        while not self.data_queue.empty():
+        for path in self._subprocess_files:
+            if not os.path.exists(path):
+                continue
             try:
-                subprocess_data = self.data_queue.get_nowait()
-                sub_graph = TraceGraph.from_dict(subprocess_data)
+                with open(path) as f:
+                    data = json.load(f)
+                sub_graph = TraceGraph.from_dict(data)
                 self.parent_graph.merge(sub_graph)
             except Exception:
-                break
+                pass
+            finally:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
 
 class _TracedTarget:
@@ -76,11 +93,11 @@ class _TracedTarget:
         self,
         original_target: Any,
         process_uuid: str,
-        data_queue: multiprocessing.Queue,
+        output_file: str,
     ) -> None:
         self.original_target = original_target
         self.process_uuid = process_uuid
-        self.data_queue = data_queue
+        self.output_file = output_file
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         from omni_tracer.core.graph import TraceGraph
@@ -96,6 +113,7 @@ class _TracedTarget:
         finally:
             trace_hook.uninstall()
             try:
-                self.data_queue.put(local_graph.to_dict())
+                with open(self.output_file, "w") as f:
+                    json.dump(local_graph.to_dict(), f)
             except Exception:
                 pass
