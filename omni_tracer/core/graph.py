@@ -28,11 +28,17 @@ class TraceGraph:
             self._local.call_stack = stack
         return stack
 
-    def record_call(self, ref: str, coroutine: str | None = None) -> str:
+    def record_call(
+        self,
+        ref: str,
+        coroutine: str | None = None,
+        bound_to: str | None = None,
+    ) -> str:
         node = FunctionNode(
             ref=ref,
             process=self.process_uuid,
             coroutine=coroutine,
+            bound_to=bound_to,
         )
         stack = self._call_stack()
         with self._lock:
@@ -128,6 +134,7 @@ class TraceGraph:
                 invokes=v.get("invokes", []),
                 instantiates=v.get("instantiates", []),
                 coroutine=v.get("coroutine"),
+                bound_to=v.get("bound_to"),
             )
             graph.functions[k] = node
         for k, v in data.get("objects", {}).items():

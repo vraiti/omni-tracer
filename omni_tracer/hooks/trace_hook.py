@@ -56,17 +56,24 @@ class TraceHook:
         if code.co_flags & CO_COROUTINE:
             coroutine_uuid = self.graph.process_uuid + ":" + str(id(frame))
 
-        func_uuid = self.graph.record_call(ref, coroutine=coroutine_uuid)
+        bound_to = None
+        self_obj = frame.f_locals.get("self")
+        if self_obj is not None:
+            bound_to = self.graph.get_object_uuid(id(self_obj))
+
+        func_uuid = self.graph.record_call(
+            ref, coroutine=coroutine_uuid, bound_to=bound_to,
+        )
 
         if code.co_name == "__init__":
-            self._handle_init(frame, code)
+            self._handle_init(frame, code, self_obj)
 
         return self._local_trace
 
     def _handle_init(
-        self, frame: types.FrameType, code: types.CodeType
+        self, frame: types.FrameType, code: types.CodeType,
+        self_obj: Any,
     ) -> None:
-        self_obj = frame.f_locals.get("self")
         if self_obj is None:
             return
         cls = type(self_obj)

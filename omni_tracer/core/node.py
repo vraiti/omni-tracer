@@ -16,6 +16,7 @@ class FunctionNode:
     invokes: list[str] = field(default_factory=list)
     instantiates: list[str] = field(default_factory=list)
     coroutine: str | None = None
+    bound_to: str | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -26,6 +27,8 @@ class FunctionNode:
         }
         if self.coroutine is not None:
             d["coroutine"] = self.coroutine
+        if self.bound_to is not None:
+            d["bound_to"] = self.bound_to
         return d
 
 
