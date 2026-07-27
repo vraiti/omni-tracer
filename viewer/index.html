@@ -246,6 +246,15 @@ body {
       <div id="exclude-list" style="padding:4px 0;"></div>
     </div>
   </div>
+  <div style="position: relative; display: inline-block;">
+    <button id="pin-root-btn" style="background:#2a2a2a; border:1px solid #555; color:#d4d4d4; padding:4px 12px; cursor:pointer; font-family:inherit; font-size:13px;">Roots ▾</button>
+    <div id="pin-root-panel" class="hidden" style="position:absolute; top:100%; left:0; background:#1a1a1a; border:1px solid #555; max-height:400px; overflow-y:auto; z-index:150; min-width:280px; padding:6px 0;">
+      <div style="padding:4px 10px; border-bottom:1px solid #333;">
+        <input type="text" id="pin-root-filter" placeholder="Search classes..." style="background:#0e0e0e; border:1px solid #444; color:#d4d4d4; padding:3px 6px; font-family:inherit; font-size:12px; width:100%;">
+      </div>
+      <div id="pin-root-list" style="padding:4px 0;"></div>
+    </div>
+  </div>
   <span id="stats"></span>
 </div>
 
@@ -281,6 +290,7 @@ let parentMap = {};
 let rendered = {};
 let collapsedSet = new Set();
 let excludedClasses = new Set();
+let pinnedRootClasses = new Set();
 let refEdges = [];
 
 function configKey() {
@@ -294,13 +304,16 @@ function loadConfig() {
       const cfg = JSON.parse(raw);
       collapsedSet = new Set(cfg.collapsed || []);
       excludedClasses = new Set(cfg.excluded || []);
+      pinnedRootClasses = new Set(cfg.pinnedRoots || []);
     } else {
       collapsedSet = new Set();
       excludedClasses = new Set();
+      pinnedRootClasses = new Set();
     }
   } catch {
     collapsedSet = new Set();
     excludedClasses = new Set();
+    pinnedRootClasses = new Set();
   }
 }
 
@@ -309,6 +322,7 @@ function saveConfig() {
     localStorage.setItem(configKey(), JSON.stringify({
       collapsed: Array.from(collapsedSet),
       excluded: Array.from(excludedClasses),
+      pinnedRoots: Array.from(pinnedRootClasses),
     }));
   } catch {}
 }
@@ -348,6 +362,7 @@ function loadFile(file) {
         traceData = raw.objects || {};
         loadConfig();
         updateExcludeBtn();
+        updatePinRootBtn();
         buildAndRender();
       } catch (err) {
         alert("Failed to parse JSON: " + err.message);
@@ -359,8 +374,11 @@ function loadFile(file) {
 }
 
 function getClassName(ref) {
-  const parts = ref.split(":");
-  return parts[parts.length - 1] || ref;
+  if (ref.includes("/")) {
+    const parts = ref.split(":");
+    return parts[parts.length - 1] || ref;
+  }
+  return ref;
 }
 
 function getFileName(ref) {
@@ -427,13 +445,29 @@ function canReach(objects, from, to, visited) {
   return false;
 }
 
+function isPinnedRoot(uuid) {
+  const obj = traceData[uuid];
+  if (!obj) return false;
+  return pinnedRootClasses.has(getClassName(obj.ref));
+}
+
 function buildEffectiveParentMap(objects, rawParentMap, creationOrder) {
   const ep = {};
   for (const [child, parents] of Object.entries(rawParentMap)) {
+    if (isPinnedRoot(child)) continue;
     const validParents = parents.filter(p => {
       if (creationOrder[p] < creationOrder[child]) return true;
-      return !canReach(objects, child, p, new Set());
+      if (!canReach(objects, child, p, new Set())) return true;
+      const childOwns = (objects[child] || {}).owns || {};
+      return p in childOwns;
     });
+    if (validParents.length > 1) {
+      const createdBy = (objects[child] || {}).created_by;
+      if (createdBy && validParents.includes(createdBy)) {
+        ep[child] = [createdBy];
+        continue;
+      }
+    }
     if (validParents.length > 0) {
       ep[child] = validParents;
     }
@@ -451,7 +485,9 @@ function findRoots(objects, effectiveParentMap) {
     visited.add(uuid);
     rooted.add(uuid);
     for (const child of getOwnedUuids(objects[uuid])) {
-      if (objects[child] && !canReach(objects, child, uuid, new Set())) {
+      if (!objects[child]) continue;
+      const childOwns = objects[child].owns || {};
+      if (!canReach(objects, child, uuid, new Set()) || uuid in childOwns) {
         markReachable(child, visited);
       }
     }
@@ -573,7 +609,7 @@ function isExcluded(uuid) {
   return excludedClasses.has(getClassName(obj.ref));
 }
 
-function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
+function renderObject(uuid, depth, visited, filterText, showIso, attrName, skipOwned) {
   const obj = traceData[uuid];
   if (!obj) return null;
 
@@ -619,7 +655,7 @@ function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
   box.addEventListener("mousemove", e => moveTooltip(e));
   box.addEventListener("mouseleave", () => hideTooltip());
 
-  const ownedEntries = getOwned(obj);
+  const ownedEntries = getOwned(obj).filter(([c]) => c !== skipOwned);
   if (ownedEntries.length > 0) {
     const childrenDiv = document.createElement("div");
     childrenDiv.className = "obj-children";
@@ -633,9 +669,17 @@ function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
     let hasVisibleChild = false;
     for (const [child, childAttr] of sortedOwns) {
       let el;
-      if (traceData[child] && canReach(traceData, child, uuid, new Set())) {
+      if (isPinnedRoot(child)) {
         if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
         el = renderRef(child, childAttr);
+      } else if (traceData[child] && canReach(traceData, child, uuid, new Set())) {
+        const childOwns = traceData[child].owns || {};
+        if (uuid in childOwns) {
+          el = renderObject(child, depth + 1, new Set(visited), filterText, showIso, childAttr, uuid);
+        } else {
+          if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
+          el = renderRef(child, childAttr);
+        }
       } else {
         el = renderObject(child, depth + 1, new Set(visited), filterText, showIso, childAttr);
       }
@@ -696,75 +740,142 @@ function scheduleEdgeLayout() {
   edgeLayoutTimer = setTimeout(layoutEdges, 100);
 }
 
+const EDGE_OFFSET_PX = 5;
+
+function findRootBox(el) {
+  let node = el.closest(".obj-box");
+  while (node) {
+    if (node.parentElement && node.parentElement.classList.contains("process-children")) return node;
+    node = node.parentElement ? node.parentElement.closest(".obj-box") : null;
+  }
+  return null;
+}
+
+function elRect(el, hRect, scrollLeft, scrollTop) {
+  const r = el.getBoundingClientRect();
+  return {
+    x: r.left - hRect.left + scrollLeft,
+    y: r.top - hRect.top + scrollTop,
+    w: r.width,
+    h: r.height,
+  };
+}
+
+function nearestSide(innerPt, box) {
+  const dLeft   = innerPt.x - box.x;
+  const dRight  = (box.x + box.w) - innerPt.x;
+  const dTop    = innerPt.y - box.y;
+  const dBottom = (box.y + box.h) - innerPt.y;
+  const min = Math.min(dLeft, dRight, dTop, dBottom);
+  if (min === dRight)  return "right";
+  if (min === dLeft)   return "left";
+  if (min === dBottom) return "bottom";
+  return "top";
+}
+
+function sideExitPoint(box, side, offset) {
+  switch (side) {
+    case "right":  return { x: box.x + box.w, y: box.y + box.h / 2 + offset };
+    case "left":   return { x: box.x,         y: box.y + box.h / 2 + offset };
+    case "bottom": return { x: box.x + box.w / 2 + offset, y: box.y + box.h };
+    case "top":    return { x: box.x + box.w / 2 + offset, y: box.y };
+  }
+}
+
+function boxEdgePoint(rect, toward) {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const dx = toward.x - cx;
+  const dy = toward.y - cy;
+  if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) return { x: cx, y: cy };
+  const scaleX = rect.w / 2 / Math.abs(dx || 1);
+  const scaleY = rect.h / 2 / Math.abs(dy || 1);
+  const scale = Math.min(scaleX, scaleY);
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+function orthogonalToSide(pt, exitPt, side) {
+  if (side === "right" || side === "left") {
+    return [pt, { x: exitPt.x, y: pt.y }, { x: exitPt.x, y: exitPt.y }];
+  }
+  return [pt, { x: pt.x, y: exitPt.y }, { x: exitPt.x, y: exitPt.y }];
+}
+
+function assignOffsets(edgeGroups) {
+  for (const [, edges] of Object.entries(edgeGroups)) {
+    const n = edges.length;
+    if (n === 0) continue;
+    edges.sort((a, b) => a.sortKey - b.sortKey);
+    const half = (n - 1) / 2;
+    for (let i = 0; i < n; i++) {
+      edges[i].offset = (i - half) * EDGE_OFFSET_PX;
+    }
+  }
+}
+
 function layoutEdges() {
   const refEls = hierarchy.querySelectorAll(".obj-ref[data-ref-target]");
-  if (refEls.length === 0) {
-    clearEdgeSvg();
-    return;
-  }
+  if (refEls.length === 0) { clearEdgeSvg(); return; }
 
   const hRect = hierarchy.getBoundingClientRect();
   const scrollLeft = hierarchy.scrollLeft || 0;
   const scrollTop = hierarchy.scrollTop || 0;
 
-  const edges = [];
-  const nodeSet = new Set();
-  const nodeRects = {};
+  const edgeInfos = [];
 
   for (const refEl of refEls) {
     const targetUuid = refEl.dataset.refTarget;
     const targetEl = hierarchy.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
     if (!targetEl) continue;
 
-    const refRect = refEl.getBoundingClientRect();
-    const targetRect = targetEl.getBoundingClientRect();
+    const srcRoot = findRootBox(refEl);
+    const tgtRoot = findRootBox(targetEl);
+    if (!srcRoot || !tgtRoot) continue;
 
-    const refId = "ref_" + edges.length;
-    nodeRects[refId] = {
-      x: refRect.left - hRect.left + scrollLeft,
-      y: refRect.top - hRect.top + scrollTop,
-      w: refRect.width,
-      h: refRect.height,
-      el: refEl,
-    };
-
-    const tgtId = "tgt_" + targetUuid;
-    if (!nodeRects[tgtId]) {
-      nodeRects[tgtId] = {
-        x: targetRect.left - hRect.left + scrollLeft,
-        y: targetRect.top - hRect.top + scrollTop,
-        w: targetRect.width,
-        h: targetRect.height,
-        el: targetEl,
-      };
-    }
-
-    nodeSet.add(refId);
-    nodeSet.add(tgtId);
-
-    edges.push({
-      id: "e_" + edges.length,
-      sources: [refId],
-      targets: [tgtId],
-      refEl: refEl,
-      targetUuid: targetUuid,
+    edgeInfos.push({
+      refEl,
+      targetEl,
+      targetUuid,
+      srcRoot,
+      tgtRoot,
+      sameRoot: srcRoot === tgtRoot,
+      refRect: elRect(refEl, hRect, scrollLeft, scrollTop),
+      tgtRect: elRect(targetEl, hRect, scrollLeft, scrollTop),
+      srcRootRect: elRect(srcRoot, hRect, scrollLeft, scrollTop),
+      tgtRootRect: elRect(tgtRoot, hRect, scrollLeft, scrollTop),
     });
   }
 
-  if (edges.length === 0) {
-    clearEdgeSvg();
-    return;
+  if (edgeInfos.length === 0) { clearEdgeSvg(); return; }
+
+  const crossEdges = edgeInfos.filter(e => !e.sameRoot);
+  const sameEdges = edgeInfos.filter(e => e.sameRoot);
+
+  const rootBoxMap = new Map();
+  const allRootBoxes = hierarchy.querySelectorAll(":scope > .process-box > .process-children > .obj-box");
+  let rbIdx = 0;
+  for (const rb of allRootBoxes) {
+    if (!rootBoxMap.has(rb)) {
+      rootBoxMap.set(rb, { id: "rb_" + rbIdx++, rect: elRect(rb, hRect, scrollLeft, scrollTop) });
+    }
   }
 
+  const elkEdges = crossEdges.map((e, i) => ({
+    id: "e_" + i,
+    sources: [rootBoxMap.get(e.srcRoot).id],
+    targets: [rootBoxMap.get(e.tgtRoot).id],
+    info: e,
+  }));
+
+  const NODE_PADDING = 8;
   const elkNodes = [];
-  for (const nid of nodeSet) {
-    const r = nodeRects[nid];
+  for (const [, { id, rect }] of rootBoxMap) {
     elkNodes.push({
-      id: nid,
-      x: r.x,
-      y: r.y,
-      width: r.w,
-      height: r.h,
+      id,
+      x: rect.x - NODE_PADDING,
+      y: rect.y - NODE_PADDING,
+      width: rect.w + NODE_PADDING * 2,
+      height: rect.h + NODE_PADDING * 2,
     });
   }
 
@@ -773,86 +884,135 @@ function layoutEdges() {
     layoutOptions: {
       "elk.algorithm": "fixed",
       "elk.edgeRouting": "ORTHOGONAL",
+      "elk.spacing.edgeEdge": "8",
+      "elk.spacing.edgeNode": "12",
+      "elk.spacing.nodeNode": "16",
     },
     children: elkNodes,
-    edges: edges.map(e => ({
-      id: e.id,
-      sources: e.sources,
-      targets: e.targets,
-    })),
+    edges: elkEdges.map(e => ({ id: e.id, sources: e.sources, targets: e.targets })),
   };
 
   elk.layout(elkGraph).then(result => {
-    drawEdges(result, nodeRects, edges);
+    const elkEdgeMap = {};
+    if (result.edges) for (const e of result.edges) elkEdgeMap[e.id] = e;
+
+    const srcExitGroups = {};
+    const tgtEntryGroups = {};
+
+    for (const ee of elkEdges) {
+      const info = ee.info;
+      const srcCenter = { x: info.refRect.x + info.refRect.w / 2, y: info.refRect.y + info.refRect.h / 2 };
+      const tgtCenter = { x: info.tgtRect.x + info.tgtRect.w / 2, y: info.tgtRect.y + info.tgtRect.h / 2 };
+
+      const elkEdge = elkEdgeMap[ee.id];
+      let firstExtPt, lastExtPt;
+      if (elkEdge && elkEdge.sections && elkEdge.sections.length > 0) {
+        const sec = elkEdge.sections[0];
+        firstExtPt = sec.bendPoints && sec.bendPoints.length > 0 ? sec.bendPoints[0] : sec.endPoint;
+        lastExtPt = sec.bendPoints && sec.bendPoints.length > 0 ? sec.bendPoints[sec.bendPoints.length - 1] : sec.startPoint;
+      } else {
+        firstExtPt = tgtCenter;
+        lastExtPt = srcCenter;
+      }
+
+      const srcSide = nearestSide(srcCenter, info.srcRootRect);
+      const tgtSide = nearestSide(tgtCenter, info.tgtRootRect);
+
+      const srcKey = rootBoxMap.get(info.srcRoot).id + "_" + srcSide;
+      const tgtKey = rootBoxMap.get(info.tgtRoot).id + "_" + tgtSide;
+
+      if (!srcExitGroups[srcKey]) srcExitGroups[srcKey] = [];
+      srcExitGroups[srcKey].push({
+        edge: ee,
+        sortKey: (srcSide === "top" || srcSide === "bottom") ? srcCenter.x : srcCenter.y,
+        offset: 0,
+      });
+
+      if (!tgtEntryGroups[tgtKey]) tgtEntryGroups[tgtKey] = [];
+      tgtEntryGroups[tgtKey].push({
+        edge: ee,
+        sortKey: (tgtSide === "top" || tgtSide === "bottom") ? tgtCenter.x : tgtCenter.y,
+        offset: 0,
+      });
+
+      ee._srcSide = srcSide;
+      ee._tgtSide = tgtSide;
+      ee._elkEdge = elkEdge;
+    }
+
+    assignOffsets(srcExitGroups);
+    assignOffsets(tgtEntryGroups);
+
+    const srcOffsetMap = {};
+    for (const entries of Object.values(srcExitGroups))
+      for (const entry of entries) srcOffsetMap[entry.edge.id] = entry.offset;
+    const tgtOffsetMap = {};
+    for (const entries of Object.values(tgtEntryGroups))
+      for (const entry of entries) tgtOffsetMap[entry.edge.id] = entry.offset;
+
+    const paths = [];
+
+    for (const ee of elkEdges) {
+      const info = ee.info;
+
+      const exitPt = sideExitPoint(info.srcRootRect, ee._srcSide, srcOffsetMap[ee.id] || 0);
+      const entryPt = sideExitPoint(info.tgtRootRect, ee._tgtSide, tgtOffsetMap[ee.id] || 0);
+
+      const srcEdge = boxEdgePoint(info.refRect, exitPt);
+      const tgtEdge = boxEdgePoint(info.tgtRect, entryPt);
+
+      const srcPath = orthogonalToSide(srcEdge, exitPt, ee._srcSide);
+      const tgtPath = orthogonalToSide(tgtEdge, entryPt, ee._tgtSide).reverse();
+
+      let midPath = [];
+      const elkE = ee._elkEdge;
+      if (elkE && elkE.sections && elkE.sections.length > 0) {
+        const sec = elkE.sections[0];
+        if (sec.bendPoints) midPath = sec.bendPoints.map(p => ({ x: p.x, y: p.y }));
+      }
+
+      const allPts = [...srcPath, ...midPath, ...tgtPath];
+      const clean = [allPts[0]];
+      for (let i = 1; i < allPts.length; i++) {
+        const prev = clean[clean.length - 1];
+        if (Math.abs(prev.x - allPts[i].x) > 0.5 || Math.abs(prev.y - allPts[i].y) > 0.5) {
+          clean.push(allPts[i]);
+        }
+      }
+
+      paths.push({ pts: clean, targetUuid: info.targetUuid, id: ee.id });
+    }
+
+    for (const se of sameEdges) {
+      const midX = Math.max(se.refRect.x + se.refRect.w, se.tgtRect.x + se.tgtRect.w) + 20;
+      const srcEdge = boxEdgePoint(se.refRect, { x: midX, y: se.refRect.y + se.refRect.h / 2 });
+      const tgtEdge = boxEdgePoint(se.tgtRect, { x: midX, y: se.tgtRect.y + se.tgtRect.h / 2 });
+      paths.push({
+        pts: [srcEdge, { x: midX, y: srcEdge.y }, { x: midX, y: tgtEdge.y }, tgtEdge],
+        targetUuid: se.targetUuid,
+        id: "same_" + paths.length,
+      });
+    }
+
+    drawPaths(paths);
   }).catch(() => {
-    drawEdgesFallback(nodeRects, edges);
+    const paths = [];
+    for (const info of edgeInfos) {
+      const midX = Math.max(info.refRect.x + info.refRect.w, info.tgtRect.x + info.tgtRect.w) + 20;
+      const srcEdge = boxEdgePoint(info.refRect, { x: midX, y: info.refRect.y + info.refRect.h / 2 });
+      const tgtEdge = boxEdgePoint(info.tgtRect, { x: midX, y: info.tgtRect.y + info.tgtRect.h / 2 });
+      paths.push({
+        pts: [srcEdge, { x: midX, y: srcEdge.y }, { x: midX, y: tgtEdge.y }, tgtEdge],
+        targetUuid: info.targetUuid,
+        id: "fb_" + paths.length,
+      });
+    }
+    drawPaths(paths);
   });
 }
 
-function drawEdges(elkResult, nodeRects, edges) {
+function drawPaths(paths) {
   clearEdgeSvg();
-
-  const hRect = hierarchy.getBoundingClientRect();
-  const svgNs = "http://www.w3.org/2000/svg";
-
-  const svg = document.createElementNS(svgNs, "svg");
-  svg.id = "edge-svg";
-  svg.setAttribute("width", hierarchy.scrollWidth);
-  svg.setAttribute("height", hierarchy.scrollHeight);
-
-  const defs = document.createElementNS(svgNs, "defs");
-  const marker = document.createElementNS(svgNs, "marker");
-  marker.setAttribute("id", "arrowhead");
-  marker.setAttribute("markerWidth", "8");
-  marker.setAttribute("markerHeight", "6");
-  marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "3");
-  marker.setAttribute("orient", "auto");
-  const arrow = document.createElementNS(svgNs, "path");
-  arrow.setAttribute("d", "M0,0 L8,3 L0,6 Z");
-  marker.appendChild(arrow);
-  defs.appendChild(marker);
-  svg.appendChild(defs);
-
-  const elkEdgeMap = {};
-  if (elkResult.edges) {
-    for (const e of elkResult.edges) {
-      elkEdgeMap[e.id] = e;
-    }
-  }
-
-  for (const edge of edges) {
-    const elkEdge = elkEdgeMap[edge.id];
-    const srcRect = nodeRects[edge.sources[0]];
-    const tgtRect = nodeRects[edge.targets[0]];
-
-    let pathD;
-
-    if (elkEdge && elkEdge.sections && elkEdge.sections.length > 0) {
-      const section = elkEdge.sections[0];
-      const pts = [];
-      pts.push(section.startPoint);
-      if (section.bendPoints) pts.push(...section.bendPoints);
-      pts.push(section.endPoint);
-      pathD = "M" + pts.map(p => p.x + "," + p.y).join(" L");
-    } else {
-      pathD = buildOrthogonalPath(srcRect, tgtRect);
-    }
-
-    const path = document.createElementNS(svgNs, "path");
-    path.setAttribute("d", pathD);
-    path.setAttribute("marker-end", "url(#arrowhead)");
-    path.dataset.edgeId = edge.id;
-    path.dataset.targetUuid = edge.targetUuid;
-    svg.appendChild(path);
-  }
-
-  hierarchy.appendChild(svg);
-}
-
-function drawEdgesFallback(nodeRects, edges) {
-  clearEdgeSvg();
-
   const svgNs = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNs, "svg");
   svg.id = "edge-svg";
@@ -873,43 +1033,17 @@ function drawEdgesFallback(nodeRects, edges) {
   defs.appendChild(marker);
   svg.appendChild(defs);
 
-  for (const edge of edges) {
-    const srcRect = nodeRects[edge.sources[0]];
-    const tgtRect = nodeRects[edge.targets[0]];
-
-    const pathD = buildOrthogonalPath(srcRect, tgtRect);
-
+  for (const p of paths) {
+    const d = "M" + p.pts.map(pt => pt.x + "," + pt.y).join(" L");
     const path = document.createElementNS(svgNs, "path");
-    path.setAttribute("d", pathD);
+    path.setAttribute("d", d);
     path.setAttribute("marker-end", "url(#arrowhead)");
-    path.dataset.edgeId = edge.id;
-    path.dataset.targetUuid = edge.targetUuid;
+    path.dataset.edgeId = p.id;
+    path.dataset.targetUuid = p.targetUuid;
     svg.appendChild(path);
   }
 
   hierarchy.appendChild(svg);
-}
-
-function buildOrthogonalPath(src, tgt) {
-  const sx = src.x + src.w;
-  const sy = src.y + src.h / 2;
-
-  const tx = tgt.x;
-  const ty = tgt.y + tgt.h / 2;
-
-  const midX = sx + 20;
-
-  if (Math.abs(sy - ty) < 2) {
-    return `M${sx},${sy} L${tx},${ty}`;
-  }
-
-  if (midX < tx) {
-    return `M${sx},${sy} L${midX},${sy} L${midX},${ty} L${tx},${ty}`;
-  }
-
-  const midY = (sy + ty) / 2;
-  const farX = Math.max(sx, tx) + 30;
-  return `M${sx},${sy} L${farX},${sy} L${farX},${midY} L${tx - 20},${midY} L${tx - 20},${ty} L${tx},${ty}`;
 }
 
 function clearEdgeSvg() {
@@ -1060,6 +1194,77 @@ function populateExcludePanel() {
     row.appendChild(text);
     row.appendChild(badge);
     excludeList.appendChild(row);
+  }
+}
+
+// --- Pin as root panel ---
+
+const pinRootBtn = document.getElementById("pin-root-btn");
+const pinRootPanel = document.getElementById("pin-root-panel");
+const pinRootFilter = document.getElementById("pin-root-filter");
+const pinRootList = document.getElementById("pin-root-list");
+
+pinRootBtn.addEventListener("click", e => {
+  e.stopPropagation();
+  pinRootPanel.classList.toggle("hidden");
+  if (!pinRootPanel.classList.contains("hidden")) {
+    populatePinRootPanel();
+    pinRootFilter.focus();
+  }
+});
+
+document.addEventListener("click", e => {
+  if (!pinRootPanel.contains(e.target) && e.target !== pinRootBtn) {
+    pinRootPanel.classList.add("hidden");
+  }
+});
+
+pinRootFilter.addEventListener("click", e => e.stopPropagation());
+pinRootFilter.addEventListener("input", () => populatePinRootPanel());
+
+function updatePinRootBtn() {
+  const n = pinnedRootClasses.size;
+  pinRootBtn.textContent = n > 0 ? `Roots (${n}) ▾` : "Roots ▾";
+}
+
+function populatePinRootPanel() {
+  const counts = getClassCounts();
+  const search = pinRootFilter.value.toLowerCase();
+  const sorted = Object.entries(counts)
+    .filter(([name]) => !search || name.toLowerCase().includes(search))
+    .sort((a, b) => a[0].localeCompare(b[0]));
+
+  pinRootList.innerHTML = "";
+  for (const [name, count] of sorted) {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex; align-items:center; gap:6px; padding:3px 10px; cursor:pointer; font-size:12px;";
+    row.addEventListener("mouseenter", () => row.style.background = "#2a2a2a");
+    row.addEventListener("mouseleave", () => row.style.background = "");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = pinnedRootClasses.has(name);
+    cb.style.accentColor = "#59a";
+    cb.addEventListener("change", () => {
+      if (cb.checked) pinnedRootClasses.add(name);
+      else pinnedRootClasses.delete(name);
+      saveConfig();
+      updatePinRootBtn();
+      buildAndRender();
+    });
+
+    const text = document.createElement("span");
+    text.textContent = name;
+    text.style.flex = "1";
+
+    const badge = document.createElement("span");
+    badge.textContent = count;
+    badge.style.cssText = "color:#666; font-size:11px;";
+
+    row.appendChild(cb);
+    row.appendChild(text);
+    row.appendChild(badge);
+    pinRootList.appendChild(row);
   }
 }
 </script>

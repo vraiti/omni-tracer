@@ -33,7 +33,8 @@ class OwnershipHook:
                     return
                 if not path_filter.is_in_scope(source_file) and not path_filter.is_tracked_class(cls):
                     return
-                ref = f"{source_file}:{cls.__qualname__}"
+                tracked = path_filter.tracked_qualname(cls)
+                ref = tracked if tracked else f"{source_file}:{cls.__qualname__}"
                 parent_uuid = graph.record_instantiation(ref, id(parent))
             graph.record_ownership(id(parent), id(child), name)
 

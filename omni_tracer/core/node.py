@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
-
-
-def _new_uuid() -> str:
-    return str(uuid.uuid4())
 
 
 @dataclass
 class FunctionNode:
     ref: str
     process: str
-    uuid: str = field(default_factory=_new_uuid)
+    uuid: str = ""
     invokes: list[str] = field(default_factory=list)
     instantiates: list[str] = field(default_factory=list)
     coroutine: str | None = None
@@ -36,12 +31,16 @@ class FunctionNode:
 class ObjectNode:
     ref: str
     process: str
-    uuid: str = field(default_factory=_new_uuid)
+    uuid: str = ""
     owns: dict[str, str] = field(default_factory=dict)
+    created_by: str | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "ref": self.ref,
             "owns": self.owns,
             "process": self.process,
         }
+        if self.created_by is not None:
+            d["created_by"] = self.created_by
+        return d

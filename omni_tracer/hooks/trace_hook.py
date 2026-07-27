@@ -88,10 +88,14 @@ class TraceHook:
         )
         if cls_code is not code:
             return
-        try:
-            class_ref = f"{inspect.getfile(cls)}:{cls.__qualname__}"
-        except (TypeError, OSError):
-            class_ref = f"<unknown>:{cls.__qualname__}"
+        tracked = self.path_filter.tracked_qualname(cls)
+        if tracked:
+            class_ref = tracked
+        else:
+            try:
+                class_ref = f"{inspect.getfile(cls)}:{cls.__qualname__}"
+            except (TypeError, OSError):
+                class_ref = f"<unknown>:{cls.__qualname__}"
         caller_uuid = None
         stack = self.graph._call_stack()
         if len(stack) >= 2:

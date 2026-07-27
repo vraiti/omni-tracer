@@ -5,8 +5,6 @@ import multiprocessing
 import multiprocessing.process
 import os
 import signal
-import tempfile
-import uuid
 from typing import Any
 
 from omni_tracer.core.graph import TraceGraph
@@ -35,12 +33,8 @@ class ProcessHook:
             daemon: Any = None,
         ) -> None:
             if target is not None:
-                process_uuid = str(uuid.uuid4())
-                output_file = os.path.join(
-                    hook.output_dir, f"{process_uuid}.json"
-                )
                 wrapped = _TracedTarget(
-                    target, process_uuid, output_file, hook.tracked_classes
+                    target, hook.output_dir, hook.tracked_classes
                 )
                 _original_process_init(
                     proc_self,
@@ -72,13 +66,11 @@ class _TracedTarget:
     def __init__(
         self,
         original_target: Any,
-        process_uuid: str,
-        output_file: str,
+        output_dir: str,
         tracked_classes: list[str] | None = None,
     ) -> None:
         self.original_target = original_target
-        self.process_uuid = process_uuid
-        self.output_file = output_file
+        self.output_dir = output_dir
         self.tracked_classes = tracked_classes or []
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
@@ -86,7 +78,9 @@ class _TracedTarget:
         from omni_tracer.filters import PathFilter
         from omni_tracer.hooks.trace_hook import TraceHook
 
-        local_graph = TraceGraph(process_uuid=self.process_uuid)
+        pid = os.getpid()
+        output_file = os.path.join(self.output_dir, f"{pid}.json")
+        local_graph = TraceGraph()
         path_filter = PathFilter()
         for cls_name in self.tracked_classes:
             path_filter.track_class(cls_name)
@@ -95,7 +89,7 @@ class _TracedTarget:
         def _sigterm_handler(signum, frame):
             trace_hook.uninstall()
             try:
-                with open(self.output_file, "w") as f:
+                with open(output_file, "w") as f:
                     json.dump(local_graph.to_dict(), f)
             except Exception:
                 pass
@@ -109,7 +103,7 @@ class _TracedTarget:
         finally:
             trace_hook.uninstall()
             try:
-                with open(self.output_file, "w") as f:
+                with open(output_file, "w") as f:
                     json.dump(local_graph.to_dict(), f)
             except Exception:
                 pass

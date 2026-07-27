@@ -33,3 +33,11 @@ class PathFilter:
             return False
         qualname = f"{cls.__module__}.{cls.__qualname__}"
         return qualname in self._tracked_classes
+
+    def tracked_qualname(self, cls: type) -> str | None:
+        if not self._tracked_classes:
+            return None
+        qualname = f"{cls.__module__}.{cls.__qualname__}"
+        if qualname in self._tracked_classes:
+            return qualname
+        return None

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import itertools
+import os
 import threading
-import uuid
 from typing import Any
 
 from omni_tracer.core.node import FunctionNode, ObjectNode
@@ -13,13 +14,17 @@ class TraceGraph:
         process_uuid: str | None = None,
         registry: TraceGraph | None = None,
     ) -> None:
-        self.process_uuid = process_uuid or str(uuid.uuid4())
+        self.process_uuid = process_uuid or str(os.getpid())
         self.functions: dict[str, FunctionNode] = {}
         self.objects: dict[str, ObjectNode] = {}
         self._lock = threading.Lock()
         self._local = threading.local()
         self._obj_id_to_uuid: dict[int, str] = {}
         self._registry = registry
+        self._id_counter = itertools.count()
+
+    def _next_id(self) -> str:
+        return f"{self.process_uuid}-{next(self._id_counter)}"
 
     def _call_stack(self) -> list[str]:
         stack = getattr(self._local, "call_stack", None)
@@ -37,6 +42,7 @@ class TraceGraph:
         node = FunctionNode(
             ref=ref,
             process=self.process_uuid,
+            uuid=self._next_id(),
             coroutine=coroutine,
             bound_to=bound_to,
         )
@@ -68,7 +74,12 @@ class TraceGraph:
                     if parent:
                         parent.instantiates.append(existing)
             return existing
-        node = ObjectNode(ref=ref, process=self.process_uuid)
+        created_by = None
+        if caller_uuid:
+            caller_fn = self.functions.get(caller_uuid)
+            if caller_fn:
+                created_by = caller_fn.bound_to
+        node = ObjectNode(ref=ref, process=self.process_uuid, uuid=self._next_id(), created_by=created_by)
         with self._lock:
             self.objects[node.uuid] = node
             self._obj_id_to_uuid[obj_id] = node.uuid
@@ -146,6 +157,7 @@ class TraceGraph:
                 ref=v["ref"],
                 process=v["process"],
                 owns=raw_owns,
+                created_by=v.get("created_by"),
             )
             graph.objects[k] = node
         return graph
