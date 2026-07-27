@@ -15,13 +15,6 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
         default="trace.json",
         help="Output JSON file path (default: trace.json)",
     )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=600,
-        help="Max seconds to wait for init to complete (default: 600)",
-    )
-
     try:
         sep = sys.argv.index("--")
         tracer_args = sys.argv[1:sep]

@@ -1,89 +1,67 @@
 from __future__ import annotations
 
+import multiprocessing
 import os
 import signal
 import sys
-import types
 
 from omni_tracer.cli import parse_args
-from omni_tracer.core.graph import TraceGraph
-from omni_tracer.core.serializer import serialize
-from omni_tracer.filters import PathFilter
-from omni_tracer.hooks.process_hook import ProcessHook
-from omni_tracer.hooks.thread_hook import ThreadHook
-from omni_tracer.hooks.trace_hook import TraceHook
 
 
-def main() -> None:
-    args, passthrough = parse_args()
+def _traced_server(argv: list[str], output_file: str) -> None:
+    from omni_tracer.core.graph import TraceGraph
+    from omni_tracer.core.serializer import serialize
+    from omni_tracer.filters import PathFilter
+    from omni_tracer.hooks.process_hook import ProcessHook
+    from omni_tracer.hooks.thread_hook import ThreadHook
+    from omni_tracer.hooks.trace_hook import TraceHook
 
-    output_dir = os.path.dirname(os.path.abspath(args.output))
+    output_dir = os.path.dirname(os.path.abspath(output_file))
     graph = TraceGraph()
     path_filter = PathFilter()
     trace_hook = TraceHook(graph, path_filter)
     thread_hook = ThreadHook(trace_hook._global_trace)
     process_hook = ProcessHook(output_dir)
-    finalized = False
 
-    def _finalize() -> None:
-        nonlocal finalized
-        if finalized:
-            return
-        finalized = True
+    def _write_trace() -> None:
         trace_hook.uninstall()
         thread_hook.uninstall()
         process_hook.uninstall()
-        serialize(graph, args.output)
-        print(f"Trace written to {args.output}")
+        serialize(graph, output_file)
+        print(f"Trace written to {output_file}")
         print(f"Subprocess traces written to {output_dir}/")
 
-    _install_hooks(_finalize, path_filter, graph)
+    def _sigterm_handler(signum, frame):
+        _write_trace()
+        raise SystemExit(0)
 
-    signal.signal(signal.SIGINT, lambda s, f: (_finalize(), sys.exit(0)))
-    signal.signal(signal.SIGTERM, lambda s, f: (_finalize(), sys.exit(0)))
-
-    sys.argv = passthrough
-    from vllm_omni.entrypoints.cli.main import main as vllm_omni_main
+    signal.signal(signal.SIGTERM, _sigterm_handler)
 
     trace_hook.install()
     thread_hook.install()
     process_hook.install()
 
+    sys.argv = argv
+    from vllm.entrypoints.cli.main import main as vllm_main
+
     try:
-        vllm_omni_main()
+        vllm_main()
     except SystemExit:
         pass
     finally:
-        _finalize()
+        _write_trace()
 
 
-def _install_hooks(
-    finalize_cb: callable,
-    path_filter: PathFilter,
-    init_graph: TraceGraph,
-) -> None:
-    import vllm_omni.entrypoints.openai.api_server as omni_api
+def main() -> None:
+    args, passthrough = parse_args()
 
-    _original_init = omni_api.omni_init_app_state
-    _original_build = omni_api.build_openai_app
-
-    def _patched_build(*args, **kwargs):
-        from omni_tracer.middleware import wrap_app_with_tracing
-        app = _original_build(*args, **kwargs)
-        wrap_app_with_tracing(app, path_filter, registry=init_graph)
-        print(
-            "Trace middleware installed"
-            " (send X-Trace: true header to trace a request)"
-        )
-        return app
-
-    omni_api.build_openai_app = _patched_build
-
-    async def _patched_init(*args, **kwargs):
-        finalize_cb()
-        return await _original_init(*args, **kwargs)
-
-    omni_api.omni_init_app_state = _patched_init
+    proc = multiprocessing.Process(
+        target=_traced_server,
+        args=(passthrough, args.output),
+    )
+    proc.start()
+    proc.join()
+    sys.exit(proc.exitcode or 0)
 
 
 if __name__ == "__main__":
