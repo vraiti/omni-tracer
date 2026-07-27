@@ -78,14 +78,14 @@ class TraceGraph:
                     parent.instantiates.append(node.uuid)
         return node.uuid
 
-    def record_ownership(self, owner_id: int, owned_id: int) -> bool:
+    def record_ownership(self, owner_id: int, owned_id: int, attr_name: str = "") -> bool:
         with self._lock:
             owner_uuid = self._resolve_object_uuid(owner_id)
             owned_uuid = self._resolve_object_uuid(owned_id)
             if owner_uuid and owned_uuid and owner_uuid != owned_uuid:
                 owner_node = self.objects.get(owner_uuid)
                 if owner_node and owned_uuid not in owner_node.owns:
-                    owner_node.owns.append(owned_uuid)
+                    owner_node.owns[owned_uuid] = attr_name
                     return True
         return False
 
@@ -138,11 +138,14 @@ class TraceGraph:
             )
             graph.functions[k] = node
         for k, v in data.get("objects", {}).items():
+            raw_owns = v.get("owns", {})
+            if isinstance(raw_owns, list):
+                raw_owns = {u: "" for u in raw_owns}
             node = ObjectNode(
                 uuid=k,
                 ref=v["ref"],
                 process=v["process"],
-                owns=v.get("owns", []),
+                owns=raw_owns,
             )
             graph.objects[k] = node
         return graph

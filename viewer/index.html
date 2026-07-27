@@ -280,10 +280,28 @@ function getFileName(ref) {
   return ref;
 }
 
+function getOwned(obj) {
+  const owns = obj.owns || {};
+  if (Array.isArray(owns)) return owns.map(u => [u, ""]);
+  return Object.entries(owns);
+}
+
+function getOwnedUuids(obj) {
+  const owns = obj.owns || {};
+  if (Array.isArray(owns)) return owns;
+  return Object.keys(owns);
+}
+
+function getAttrName(obj, childUuid) {
+  const owns = obj.owns || {};
+  if (Array.isArray(owns)) return "";
+  return owns[childUuid] || "";
+}
+
 function buildParentMap(objects) {
   const pm = {};
   for (const [uuid, obj] of Object.entries(objects)) {
-    for (const child of (obj.owns || [])) {
+    for (const child of getOwnedUuids(obj)) {
       if (!pm[child]) pm[child] = [];
       pm[child].push(uuid);
     }
@@ -322,7 +340,7 @@ function findRoots(objects, effectiveParentMap) {
     if (visited.has(uuid)) return;
     visited.add(uuid);
     rooted.add(uuid);
-    for (const child of (objects[uuid].owns || [])) {
+    for (const child of getOwnedUuids(objects[uuid])) {
       if (objects[child] && creationOrder[child] > creationOrder[uuid]) {
         markReachable(child, visited);
       }
@@ -342,7 +360,7 @@ function findRoots(objects, effectiveParentMap) {
 
 function participatesInOwnership(uuid, objects, pm) {
   const obj = objects[uuid];
-  if (obj.owns && obj.owns.length > 0) return true;
+  if (getOwnedUuids(obj).length > 0) return true;
   if (pm[uuid] && pm[uuid].length > 0) return true;
   return false;
 }
@@ -436,13 +454,13 @@ function subtreeMatchesFilter(uuid, filterText, visited) {
   visited.add(uuid);
   if (matchesFilter(uuid, filterText)) return true;
   const obj = traceData[uuid];
-  for (const child of (obj.owns || [])) {
+  for (const child of getOwnedUuids(obj)) {
     if (traceData[child] && subtreeMatchesFilter(child, filterText, visited)) return true;
   }
   return false;
 }
 
-function renderObject(uuid, depth, visited, filterText, showIso) {
+function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
   const obj = traceData[uuid];
   if (!obj) return null;
 
@@ -450,12 +468,12 @@ function renderObject(uuid, depth, visited, filterText, showIso) {
 
   if (visited.has(uuid)) {
     if (!subtreeMatchesFilter(uuid, filterText, new Set())) return null;
-    return renderRef(uuid);
+    return renderRef(uuid, attrName);
   }
 
   if (rendered[uuid]) {
     if (!subtreeMatchesFilter(uuid, filterText, new Set())) return null;
-    return renderRef(uuid);
+    return renderRef(uuid, attrName);
   }
 
   if (!subtreeMatchesFilter(uuid, filterText, new Set(visited))) return null;
@@ -470,33 +488,34 @@ function renderObject(uuid, depth, visited, filterText, showIso) {
   const label = document.createElement("div");
   label.className = "obj-label";
   const className = getClassName(obj.ref);
-  const fileName = getFileName(obj.ref);
-  label.textContent = className;
+  label.textContent = attrName ? attrName + ": " + className : className;
   box.appendChild(label);
+
+  box._className = className;
 
   box.addEventListener("mouseenter", e => showTooltip(e, uuid));
   box.addEventListener("mousemove", e => moveTooltip(e));
   box.addEventListener("mouseleave", () => hideTooltip());
 
-  const owns = obj.owns || [];
-  if (owns.length > 0) {
+  const ownedEntries = getOwned(obj);
+  if (ownedEntries.length > 0) {
     const childrenDiv = document.createElement("div");
     childrenDiv.className = "obj-children";
 
-    const sortedOwns = owns.slice().sort((a, b) => {
-      const oa = traceData[a] ? (traceData[a].owns || []).length : 0;
-      const ob = traceData[b] ? (traceData[b].owns || []).length : 0;
+    const sortedOwns = ownedEntries.slice().sort((a, b) => {
+      const oa = traceData[a[0]] ? getOwnedUuids(traceData[a[0]]).length : 0;
+      const ob = traceData[b[0]] ? getOwnedUuids(traceData[b[0]]).length : 0;
       return ob - oa;
     });
 
     let hasVisibleChild = false;
-    for (const child of sortedOwns) {
+    for (const [child, attrName] of sortedOwns) {
       let el;
       if (traceData[child] && creationOrder[child] < creationOrder[uuid]) {
         if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
-        el = renderRef(child);
+        el = renderRef(child, attrName);
       } else {
-        el = renderObject(child, depth + 1, new Set(visited), filterText, showIso);
+        el = renderObject(child, depth + 1, new Set(visited), filterText, showIso, attrName);
       }
       if (el) {
         childrenDiv.appendChild(el);
@@ -512,13 +531,14 @@ function renderObject(uuid, depth, visited, filterText, showIso) {
   return box;
 }
 
-function renderRef(uuid) {
+function renderRef(uuid, attrName) {
   const obj = traceData[uuid];
   if (!obj) return null;
 
   const el = document.createElement("div");
   el.className = "obj-ref";
-  el.textContent = getClassName(obj.ref) + " ⇗";
+  const className = getClassName(obj.ref);
+  el.textContent = (attrName ? attrName + ": " : "") + className + " ⇗";
   el.dataset.uuid = uuid;
 
   el.addEventListener("mouseenter", e => showTooltip(e, uuid));
@@ -541,14 +561,14 @@ function showTooltip(e, uuid) {
   const obj = traceData[uuid];
   if (!obj) return;
 
-  const owns = obj.owns || [];
+  const ownedUuids = getOwnedUuids(obj);
   const parents = effectiveParentMap[uuid] || [];
   const backRefs = (parentMap[uuid] || []).filter(p => !parents.includes(p));
 
   let html = `<span class="tt-key">class:</span> <span class="tt-val">${getClassName(obj.ref)}</span><br>`;
   html += `<span class="tt-key">file:</span> <span class="tt-val">${obj.ref.split(":").slice(0, -1).join(":")}</span><br>`;
   html += `<span class="tt-key">uuid:</span> <span class="tt-val">${uuid}</span><br>`;
-  html += `<span class="tt-key">owns:</span> <span class="tt-val">${owns.length} object${owns.length !== 1 ? "s" : ""}</span><br>`;
+  html += `<span class="tt-key">owns:</span> <span class="tt-val">${ownedUuids.length} object${ownedUuids.length !== 1 ? "s" : ""}</span><br>`;
   html += `<span class="tt-key">owned by:</span> <span class="tt-val">${parents.length > 0 ? parents.map(p => getClassName(traceData[p].ref)).join(", ") : "none (root)"}</span>`;
   if (backRefs.length > 0) {
     html += `<br><span class="tt-key">back-refs:</span> <span class="tt-val">${backRefs.map(p => getClassName(traceData[p].ref)).join(", ")}</span>`;

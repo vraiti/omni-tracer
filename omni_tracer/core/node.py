@@ -37,7 +37,7 @@ class ObjectNode:
     ref: str
     process: str
     uuid: str = field(default_factory=_new_uuid)
-    owns: list[str] = field(default_factory=list)
+    owns: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {

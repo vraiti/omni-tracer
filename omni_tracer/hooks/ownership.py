@@ -35,7 +35,7 @@ class OwnershipHook:
             original_setattr(self_obj, name, value)
             owned_uuid = graph.get_object_uuid(id(value))
             if owned_uuid is not None:
-                graph.record_ownership(id(self_obj), id(value))
+                graph.record_ownership(id(self_obj), id(value), name)
 
         try:
             cls.__setattr__ = _traced_setattr
