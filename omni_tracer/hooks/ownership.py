@@ -18,6 +18,7 @@ class OwnershipHook:
         from torch.nn.modules.module import register_module_module_registration_hook
 
         graph = self.graph
+        path_filter = self.path_filter
 
         def _on_register(parent: Any, name: str, child: Any) -> None:
             child_uuid = graph.get_object_uuid(id(child))
@@ -27,9 +28,12 @@ class OwnershipHook:
             if parent_uuid is None:
                 cls = type(parent)
                 try:
-                    ref = f"{inspect.getfile(cls)}:{cls.__qualname__}"
+                    source_file = inspect.getfile(cls)
                 except (TypeError, OSError):
-                    ref = f"<unknown>:{cls.__qualname__}"
+                    return
+                if not path_filter.is_in_scope(source_file) and not path_filter.is_tracked_class(cls):
+                    return
+                ref = f"{source_file}:{cls.__qualname__}"
                 parent_uuid = graph.record_instantiation(ref, id(parent))
             graph.record_ownership(id(parent), id(child), name)
 
