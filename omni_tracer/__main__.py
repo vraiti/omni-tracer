@@ -43,7 +43,7 @@ def _traced_server(argv: list[str], output_file: str, tracked_classes: list[str]
     thread_hook.install()
     process_hook.install()
 
-    sys.argv = argv
+    sys.argv = ["vllm"] + list(argv)
     from vllm.entrypoints.cli.main import main as vllm_main
 
     try:
