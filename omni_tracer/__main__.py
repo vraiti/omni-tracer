@@ -38,7 +38,8 @@ def main() -> None:
         process_hook.drain_and_merge()
         serialize(graph, args.output)
         print(f"Subprocess traces merged into {args.output}")
-        sys.exit(0)
+        import os
+        os._exit(0)
 
     _install_hooks(_finalize, path_filter, graph)
 
