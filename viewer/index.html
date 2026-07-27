@@ -119,11 +119,15 @@ body {
 .obj-box .obj-label {
   padding: 3px 8px;
   font-size: 12px;
-  cursor: default;
+  cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  user-select: none;
 }
+
+.obj-box.collapsed > .obj-children { display: none; }
+.obj-box.collapsed > .obj-label::before { content: "\25b6 "; font-size: 9px; }
 
 .obj-box .obj-children {
   padding: 4px 6px 6px;
@@ -232,8 +236,45 @@ const loading = document.getElementById("loading");
 const tooltip = document.getElementById("tooltip");
 
 let traceData = null;
+let traceFileName = null;
 let parentMap = {};
 let rendered = {};
+let collapsedSet = new Set();
+
+function configKey() {
+  return "omni-tracer:" + (traceFileName || "unknown");
+}
+
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem(configKey());
+    if (raw) {
+      const cfg = JSON.parse(raw);
+      collapsedSet = new Set(cfg.collapsed || []);
+    } else {
+      collapsedSet = new Set();
+    }
+  } catch { collapsedSet = new Set(); }
+}
+
+function saveConfig() {
+  try {
+    localStorage.setItem(configKey(), JSON.stringify({
+      collapsed: Array.from(collapsedSet),
+    }));
+  } catch {}
+}
+
+function toggleCollapse(uuid, box) {
+  if (collapsedSet.has(uuid)) {
+    collapsedSet.delete(uuid);
+    box.classList.remove("collapsed");
+  } else {
+    collapsedSet.add(uuid);
+    box.classList.add("collapsed");
+  }
+  saveConfig();
+}
 
 dropZone.addEventListener("click", () => fileInputDrop.click());
 dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
@@ -249,12 +290,14 @@ fileInput.addEventListener("change", e => { if (e.target.files.length) loadFile(
 
 function loadFile(file) {
   loading.style.display = "flex";
+  traceFileName = file.name;
   const reader = new FileReader();
   reader.onload = e => {
     setTimeout(() => {
       try {
         const raw = JSON.parse(e.target.result);
         traceData = raw.objects || {};
+        loadConfig();
         buildAndRender();
       } catch (err) {
         alert("Failed to parse JSON: " + err.message);
@@ -416,8 +459,8 @@ function render() {
     children.className = "process-children";
 
     const sorted = rootUuids.slice().sort((a, b) => {
-      const oa = (traceData[a].owns || []).length;
-      const ob = (traceData[b].owns || []).length;
+      const oa = getOwnedUuids(traceData[a]).length;
+      const ob = getOwnedUuids(traceData[b]).length;
       return ob - oa;
     });
 
@@ -492,6 +535,13 @@ function renderObject(uuid, depth, visited, filterText, showIso, attrName) {
   box.appendChild(label);
 
   box._className = className;
+
+  if (collapsedSet.has(uuid)) box.classList.add("collapsed");
+
+  label.addEventListener("click", e => {
+    e.stopPropagation();
+    toggleCollapse(uuid, box);
+  });
 
   box.addEventListener("mouseenter", e => showTooltip(e, uuid));
   box.addEventListener("mousemove", e => moveTooltip(e));
