@@ -21,6 +21,11 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
         default=[],
         help="External class to track (e.g. fastapi.FastAPI). May be repeated.",
     )
+    parser.add_argument(
+        "--track-file",
+        default=None,
+        help="File listing external classes to track, one per line.",
+    )
     try:
         sep = sys.argv.index("--")
         tracer_args = sys.argv[1:sep]

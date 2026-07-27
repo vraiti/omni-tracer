@@ -57,9 +57,17 @@ def _traced_server(argv: list[str], output_file: str, tracked_classes: list[str]
 def main() -> None:
     args, passthrough = parse_args()
 
+    tracked = list(args.track)
+    if args.track_file:
+        with open(args.track_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    tracked.append(line)
+
     proc = multiprocessing.Process(
         target=_traced_server,
-        args=(passthrough, args.output, args.track),
+        args=(passthrough, args.output, tracked),
     )
     proc.start()
     proc.join()
