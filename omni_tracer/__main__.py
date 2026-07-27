@@ -34,11 +34,13 @@ def main() -> None:
         print(f"Trace written to {args.output}")
 
     def _shutdown(signum: int, frame: types.FrameType | None) -> None:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         _finalize()
+        import os
+        os.killpg(os.getpgid(os.getpid()), signal.SIGTERM)
         process_hook.drain_and_merge()
         serialize(graph, args.output)
         print(f"Subprocess traces merged into {args.output}")
-        import os
         os._exit(0)
 
     _install_hooks(_finalize, path_filter, graph)

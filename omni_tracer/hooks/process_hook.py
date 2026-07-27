@@ -74,13 +74,6 @@ class ProcessHook:
 
     def drain_and_merge(self) -> None:
         for proc in self._tracked_processes:
-            if proc.is_alive() and proc.pid:
-                try:
-                    os.kill(proc.pid, signal.SIGTERM)
-                except OSError:
-                    pass
-
-        for proc in self._tracked_processes:
             proc.join()
 
         for path in self._subprocess_files:
