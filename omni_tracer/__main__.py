@@ -12,6 +12,8 @@ from omni_tracer.hooks.process_hook import ProcessHook
 from omni_tracer.hooks.thread_hook import ThreadHook
 from omni_tracer.hooks.trace_hook import TraceHook
 
+_captured_app = None
+
 
 def main() -> None:
     args, passthrough = parse_args()
@@ -39,7 +41,7 @@ def main() -> None:
         _finalize()
         sys.exit(0)
 
-    _install_stop_hook(_finalize)
+    _install_hooks(_finalize, path_filter)
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -59,16 +61,37 @@ def main() -> None:
         _finalize()
 
 
-def _install_stop_hook(finalize_cb: callable) -> None:
-    import vllm_omni.entrypoints.openai.api_server as api_server
+def _install_hooks(finalize_cb: callable, path_filter: PathFilter) -> None:
+    global _captured_app
+    import vllm_omni.entrypoints.openai.api_server as omni_api
+    import vllm.entrypoints.openai.api_server as vllm_api
 
-    _original = api_server.omni_init_app_state
+    _original_init = omni_api.omni_init_app_state
+    _original_build = omni_api.build_openai_app
 
-    async def _patched(*args, **kwargs):
+    def _patched_build(*args, **kwargs):
+        global _captured_app
+        app = _original_build(*args, **kwargs)
+        _captured_app = app
+        return app
+
+    omni_api.build_openai_app = _patched_build
+
+    async def _patched_init(*args, **kwargs):
         finalize_cb()
-        return await _original(*args, **kwargs)
+        result = await _original_init(*args, **kwargs)
+        if _captured_app is not None:
+            from omni_tracer.middleware import TraceMiddleware
+            _captured_app.add_middleware(
+                TraceMiddleware, path_filter=path_filter
+            )
+            print(
+                "Trace middleware installed"
+                " (send X-Trace: true header to trace a request)"
+            )
+        return result
 
-    api_server.omni_init_app_state = _patched
+    omni_api.omni_init_app_state = _patched_init
 
 
 if __name__ == "__main__":
