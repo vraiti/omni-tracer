@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>omni-tracer object hierarchy</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  font-size: 13px;
+  background: #0e0e0e;
+  color: #d4d4d4;
+  min-height: 100vh;
+}
+
+#controls {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+#controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+#controls input[type="text"] {
+  background: #0e0e0e;
+  border: 1px solid #444;
+  color: #d4d4d4;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  width: 220px;
+}
+
+#controls input[type="checkbox"] {
+  accent-color: #5a9;
+}
+
+#file-input-label {
+  background: #2a2a2a;
+  border: 1px solid #555;
+  padding: 4px 12px;
+  cursor: pointer;
+  display: inline-block;
+}
+
+#file-input-label:hover { background: #333; }
+
+#file-input { display: none; }
+
+#stats {
+  color: #888;
+  font-size: 12px;
+}
+
+#drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 50px);
+  color: #555;
+  font-size: 16px;
+}
+
+#drop-zone.drag-over {
+  background: #1a1a2a;
+  color: #88a;
+}
+
+#hierarchy {
+  padding: 16px;
+  display: none;
+}
+
+.process-box {
+  border: 2px solid #4a7a9a;
+  margin-bottom: 12px;
+  padding: 0;
+  background: #111;
+}
+
+.process-label {
+  background: #4a7a9a;
+  color: #000;
+  padding: 4px 10px;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.process-children {
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+  align-content: flex-start;
+}
+
+.obj-box {
+  border: 1px solid #444;
+  padding: 0;
+  min-width: 120px;
+  max-width: 100%;
+}
+
+.obj-box .obj-label {
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obj-box .obj-children {
+  padding: 4px 6px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-start;
+  align-content: flex-start;
+}
+
+.obj-ref {
+  border: 1px dashed #555;
+  padding: 3px 8px;
+  font-style: italic;
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.obj-ref:hover { color: #aaa; border-color: #888; }
+
+/* depth colors */
+.depth-0 { background: #1a1a1a; }
+.depth-0 > .obj-label { color: #7cb; }
+.depth-1 { background: #1e1e22; }
+.depth-1 > .obj-label { color: #a9c; }
+.depth-2 { background: #22222a; }
+.depth-2 > .obj-label { color: #ca9; }
+.depth-3 { background: #262630; }
+.depth-3 > .obj-label { color: #9ca; }
+.depth-4 { background: #2a2a36; }
+.depth-4 > .obj-label { color: #ac9; }
+.depth-5 { background: #2e2e3c; }
+.depth-5 > .obj-label { color: #9ac; }
+.depth-6 { background: #323242; }
+.depth-6 > .obj-label { color: #c9a; }
+
+.hidden { display: none !important; }
+
+.tooltip {
+  position: fixed;
+  background: #222;
+  border: 1px solid #555;
+  padding: 8px 12px;
+  font-size: 11px;
+  max-width: 500px;
+  z-index: 200;
+  pointer-events: none;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.tooltip .tt-key { color: #888; }
+.tooltip .tt-val { color: #d4d4d4; }
+
+#loading {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 16px;
+}
+</style>
+</head>
+<body>
+
+<div id="controls" class="hidden">
+  <label id="file-input-label">
+    Load trace
+    <input type="file" id="file-input" accept=".json">
+  </label>
+  <input type="text" id="filter-input" placeholder="Filter by class name...">
+  <label>
+    <input type="checkbox" id="show-isolated">
+    Show isolated objects
+  </label>
+  <span id="stats"></span>
+</div>
+
+<div id="drop-zone">
+  Drop a trace JSON here, or click to load
+  <input type="file" id="file-input-drop" accept=".json" style="display:none">
+</div>
+
+<div id="hierarchy"></div>
+
+<div id="loading">Parsing trace...</div>
+
+<div id="tooltip" class="tooltip hidden"></div>
+
+<script>
+const dropZone = document.getElementById("drop-zone");
+const hierarchy = document.getElementById("hierarchy");
+const controls = document.getElementById("controls");
+const filterInput = document.getElementById("filter-input");
+const showIsolated = document.getElementById("show-isolated");
+const statsEl = document.getElementById("stats");
+const fileInput = document.getElementById("file-input");
+const fileInputDrop = document.getElementById("file-input-drop");
+const loading = document.getElementById("loading");
+const tooltip = document.getElementById("tooltip");
+
+let traceData = null;
+let parentMap = {};
+let rendered = {};
+
+dropZone.addEventListener("click", () => fileInputDrop.click());
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+});
+
+fileInputDrop.addEventListener("change", e => { if (e.target.files.length) loadFile(e.target.files[0]); });
+fileInput.addEventListener("change", e => { if (e.target.files.length) loadFile(e.target.files[0]); });
+
+function loadFile(file) {
+  loading.style.display = "flex";
+  const reader = new FileReader();
+  reader.onload = e => {
+    setTimeout(() => {
+      try {
+        const raw = JSON.parse(e.target.result);
+        traceData = raw.objects || {};
+        buildAndRender();
+      } catch (err) {
+        alert("Failed to parse JSON: " + err.message);
+      }
+      loading.style.display = "none";
+    }, 50);
+  };
+  reader.readAsText(file);
+}
+
+function getClassName(ref) {
+  const parts = ref.split(":");
+  return parts[parts.length - 1] || ref;
+}
+
+function getFileName(ref) {
+  const parts = ref.split(":");
+  if (parts.length >= 2) {
+    const fp = parts.slice(0, -1).join(":");
+    const segs = fp.split("/");
+    return segs[segs.length - 1];
+  }
+  return ref;
+}
+
+function buildParentMap(objects) {
+  const pm = {};
+  for (const [uuid, obj] of Object.entries(objects)) {
+    for (const child of (obj.owns || [])) {
+      if (!pm[child]) pm[child] = [];
+      pm[child].push(uuid);
+    }
+  }
+  return pm;
+}
+
+function buildCreationOrder(objects) {
+  const order = {};
+  let i = 0;
+  for (const uuid of Object.keys(objects)) {
+    order[uuid] = i++;
+  }
+  return order;
+}
+
+function buildEffectiveParentMap(objects, rawParentMap, creationOrder) {
+  const ep = {};
+  for (const [child, parents] of Object.entries(rawParentMap)) {
+    const validParents = parents.filter(p => {
+      return creationOrder[p] < creationOrder[child];
+    });
+    if (validParents.length > 0) {
+      ep[child] = validParents;
+    }
+  }
+  return ep;
+}
+
+function findRoots(objects, effectiveParentMap) {
+  const allUuids = Object.keys(objects);
+  const roots = allUuids.filter(u => !effectiveParentMap[u] || effectiveParentMap[u].length === 0);
+
+  const rooted = new Set();
+  function markReachable(uuid, visited) {
+    if (visited.has(uuid)) return;
+    visited.add(uuid);
+    rooted.add(uuid);
+    for (const child of (objects[uuid].owns || [])) {
+      if (objects[child] && creationOrder[child] > creationOrder[uuid]) {
+        markReachable(child, visited);
+      }
+    }
+  }
+  for (const r of roots) markReachable(r, new Set());
+
+  for (const uuid of allUuids) {
+    if (!rooted.has(uuid)) {
+      roots.push(uuid);
+      markReachable(uuid, new Set());
+    }
+  }
+
+  return roots;
+}
+
+function participatesInOwnership(uuid, objects, pm) {
+  const obj = objects[uuid];
+  if (obj.owns && obj.owns.length > 0) return true;
+  if (pm[uuid] && pm[uuid].length > 0) return true;
+  return false;
+}
+
+let creationOrder = {};
+let effectiveParentMap = {};
+
+function buildAndRender() {
+  parentMap = buildParentMap(traceData);
+  creationOrder = buildCreationOrder(traceData);
+  effectiveParentMap = buildEffectiveParentMap(traceData, parentMap, creationOrder);
+  render();
+  dropZone.classList.add("hidden");
+  controls.classList.remove("hidden");
+  hierarchy.style.display = "block";
+}
+
+function render() {
+  hierarchy.innerHTML = "";
+  rendered = {};
+
+  const filterText = filterInput.value.toLowerCase();
+  const showIso = showIsolated.checked;
+
+  const processes = {};
+  for (const [uuid, obj] of Object.entries(traceData)) {
+    const proc = obj.process || "unknown";
+    if (!processes[proc]) processes[proc] = [];
+    processes[proc].push(uuid);
+  }
+
+  let totalObjects = Object.keys(traceData).length;
+
+  const allRoots = findRoots(traceData, effectiveParentMap);
+
+  const rootsByProc = {};
+  for (const uuid of allRoots) {
+    const proc = traceData[uuid].process || "unknown";
+    if (!rootsByProc[proc]) rootsByProc[proc] = [];
+    rootsByProc[proc].push(uuid);
+  }
+
+  for (const [proc, rootUuids] of Object.entries(rootsByProc)) {
+    const procBox = document.createElement("div");
+    procBox.className = "process-box";
+
+    const label = document.createElement("div");
+    label.className = "process-label";
+    label.textContent = "process " + proc.substring(0, 12) + "...";
+    procBox.appendChild(label);
+
+    const children = document.createElement("div");
+    children.className = "process-children";
+
+    const sorted = rootUuids.slice().sort((a, b) => {
+      const oa = (traceData[a].owns || []).length;
+      const ob = (traceData[b].owns || []).length;
+      return ob - oa;
+    });
+
+    for (const uuid of sorted) {
+      const el = renderObject(uuid, 0, new Set(), filterText, showIso);
+      if (el) {
+        children.appendChild(el);
+      }
+    }
+
+    if (children.children.length > 0) {
+      procBox.appendChild(children);
+      hierarchy.appendChild(procBox);
+    }
+  }
+
+  const totalShown = countVisible();
+  statsEl.textContent = totalShown + " / " + totalObjects + " objects shown";
+}
+
+function countVisible() {
+  return hierarchy.querySelectorAll(".obj-box:not(.hidden)").length;
+}
+
+function matchesFilter(uuid, filterText) {
+  if (!filterText) return true;
+  const obj = traceData[uuid];
+  const name = getClassName(obj.ref).toLowerCase();
+  return name.includes(filterText);
+}
+
+function subtreeMatchesFilter(uuid, filterText, visited) {
+  if (visited.has(uuid)) return false;
+  visited.add(uuid);
+  if (matchesFilter(uuid, filterText)) return true;
+  const obj = traceData[uuid];
+  for (const child of (obj.owns || [])) {
+    if (traceData[child] && subtreeMatchesFilter(child, filterText, visited)) return true;
+  }
+  return false;
+}
+
+function renderObject(uuid, depth, visited, filterText, showIso) {
+  const obj = traceData[uuid];
+  if (!obj) return null;
+
+  if (!showIso && !participatesInOwnership(uuid, traceData, parentMap)) return null;
+
+  if (visited.has(uuid)) {
+    if (!subtreeMatchesFilter(uuid, filterText, new Set())) return null;
+    return renderRef(uuid);
+  }
+
+  if (rendered[uuid]) {
+    if (!subtreeMatchesFilter(uuid, filterText, new Set())) return null;
+    return renderRef(uuid);
+  }
+
+  if (!subtreeMatchesFilter(uuid, filterText, new Set(visited))) return null;
+
+  visited.add(uuid);
+  rendered[uuid] = true;
+
+  const box = document.createElement("div");
+  box.className = "obj-box depth-" + (depth % 7);
+  box.dataset.uuid = uuid;
+
+  const label = document.createElement("div");
+  label.className = "obj-label";
+  const className = getClassName(obj.ref);
+  const fileName = getFileName(obj.ref);
+  label.textContent = className;
+  box.appendChild(label);
+
+  box.addEventListener("mouseenter", e => showTooltip(e, uuid));
+  box.addEventListener("mousemove", e => moveTooltip(e));
+  box.addEventListener("mouseleave", () => hideTooltip());
+
+  const owns = obj.owns || [];
+  if (owns.length > 0) {
+    const childrenDiv = document.createElement("div");
+    childrenDiv.className = "obj-children";
+
+    const sortedOwns = owns.slice().sort((a, b) => {
+      const oa = traceData[a] ? (traceData[a].owns || []).length : 0;
+      const ob = traceData[b] ? (traceData[b].owns || []).length : 0;
+      return ob - oa;
+    });
+
+    let hasVisibleChild = false;
+    for (const child of sortedOwns) {
+      let el;
+      if (traceData[child] && creationOrder[child] < creationOrder[uuid]) {
+        if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
+        el = renderRef(child);
+      } else {
+        el = renderObject(child, depth + 1, new Set(visited), filterText, showIso);
+      }
+      if (el) {
+        childrenDiv.appendChild(el);
+        hasVisibleChild = true;
+      }
+    }
+
+    if (hasVisibleChild) {
+      box.appendChild(childrenDiv);
+    }
+  }
+
+  return box;
+}
+
+function renderRef(uuid) {
+  const obj = traceData[uuid];
+  if (!obj) return null;
+
+  const el = document.createElement("div");
+  el.className = "obj-ref";
+  el.textContent = getClassName(obj.ref) + " ⇗";
+  el.dataset.uuid = uuid;
+
+  el.addEventListener("mouseenter", e => showTooltip(e, uuid));
+  el.addEventListener("mousemove", e => moveTooltip(e));
+  el.addEventListener("mouseleave", () => hideTooltip());
+
+  el.addEventListener("click", () => {
+    const target = hierarchy.querySelector(`.obj-box[data-uuid="${uuid}"]`);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.style.outline = "2px solid #5a9";
+      setTimeout(() => target.style.outline = "", 1500);
+    }
+  });
+
+  return el;
+}
+
+function showTooltip(e, uuid) {
+  const obj = traceData[uuid];
+  if (!obj) return;
+
+  const owns = obj.owns || [];
+  const parents = effectiveParentMap[uuid] || [];
+  const backRefs = (parentMap[uuid] || []).filter(p => !parents.includes(p));
+
+  let html = `<span class="tt-key">class:</span> <span class="tt-val">${getClassName(obj.ref)}</span><br>`;
+  html += `<span class="tt-key">file:</span> <span class="tt-val">${obj.ref.split(":").slice(0, -1).join(":")}</span><br>`;
+  html += `<span class="tt-key">uuid:</span> <span class="tt-val">${uuid}</span><br>`;
+  html += `<span class="tt-key">owns:</span> <span class="tt-val">${owns.length} object${owns.length !== 1 ? "s" : ""}</span><br>`;
+  html += `<span class="tt-key">owned by:</span> <span class="tt-val">${parents.length > 0 ? parents.map(p => getClassName(traceData[p].ref)).join(", ") : "none (root)"}</span>`;
+  if (backRefs.length > 0) {
+    html += `<br><span class="tt-key">back-refs:</span> <span class="tt-val">${backRefs.map(p => getClassName(traceData[p].ref)).join(", ")}</span>`;
+  }
+
+  tooltip.innerHTML = html;
+  tooltip.classList.remove("hidden");
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  let x = e.clientX + 12;
+  let y = e.clientY + 12;
+  const rect = tooltip.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth) x = e.clientX - rect.width - 12;
+  if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - 12;
+  tooltip.style.left = x + "px";
+  tooltip.style.top = y + "px";
+}
+
+function hideTooltip() {
+  tooltip.classList.add("hidden");
+}
+
+let filterTimeout = null;
+filterInput.addEventListener("input", () => {
+  clearTimeout(filterTimeout);
+  filterTimeout = setTimeout(render, 200);
+});
+showIsolated.addEventListener("change", render);
+</script>
+</body>
+</html>

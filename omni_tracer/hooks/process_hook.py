@@ -4,7 +4,9 @@ import json
 import multiprocessing
 import multiprocessing.process
 import os
+import signal
 import tempfile
+
 import uuid
 from typing import Any
 
@@ -20,6 +22,7 @@ class ProcessHook:
     def __init__(self, parent_graph: TraceGraph) -> None:
         self.parent_graph = parent_graph
         self._subprocess_files: list[str] = []
+        self._tracked_processes: list[multiprocessing.process.BaseProcess] = []
 
     def install(self) -> None:
         hook = self
@@ -40,6 +43,7 @@ class ProcessHook:
                     _TRACE_OUTPUT_DIR, f"{process_uuid}.json"
                 )
                 hook._subprocess_files.append(output_file)
+                hook._tracked_processes.append(proc_self)
                 wrapped = _TracedTarget(
                     target, process_uuid, output_file
                 )
@@ -69,6 +73,16 @@ class ProcessHook:
         multiprocessing.process.BaseProcess.__init__ = _original_process_init
 
     def drain_and_merge(self) -> None:
+        for proc in self._tracked_processes:
+            if proc.is_alive() and proc.pid:
+                try:
+                    os.kill(proc.pid, signal.SIGTERM)
+                except OSError:
+                    pass
+
+        for proc in self._tracked_processes:
+            proc.join()
+
         for path in self._subprocess_files:
             if not os.path.exists(path):
                 continue
@@ -107,6 +121,18 @@ class _TracedTarget:
         local_graph = TraceGraph(process_uuid=self.process_uuid)
         path_filter = PathFilter()
         trace_hook = TraceHook(local_graph, path_filter)
+
+        def _sigterm_handler(signum, frame):
+            trace_hook.uninstall()
+            try:
+                with open(self.output_file, "w") as f:
+                    json.dump(local_graph.to_dict(), f)
+            except Exception:
+                pass
+            raise SystemExit(0)
+
+        signal.signal(signal.SIGTERM, _sigterm_handler)
+
         trace_hook.install()
         try:
             return self.original_target(*args, **kwargs)
