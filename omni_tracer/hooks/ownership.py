@@ -21,8 +21,17 @@ class OwnershipHook:
 
         def _on_register(parent: Any, name: str, child: Any) -> None:
             child_uuid = graph.get_object_uuid(id(child))
-            if child_uuid is not None:
-                graph.record_ownership(id(parent), id(child), name)
+            if child_uuid is None:
+                return
+            parent_uuid = graph.get_object_uuid(id(parent))
+            if parent_uuid is None:
+                cls = type(parent)
+                try:
+                    ref = f"{inspect.getfile(cls)}:{cls.__qualname__}"
+                except (TypeError, OSError):
+                    ref = f"<unknown>:{cls.__qualname__}"
+                parent_uuid = graph.record_instantiation(ref, id(parent))
+            graph.record_ownership(id(parent), id(child), name)
 
         self._module_hook_handle = register_module_module_registration_hook(_on_register)
 
