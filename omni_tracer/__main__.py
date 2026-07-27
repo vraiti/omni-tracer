@@ -29,19 +29,21 @@ def main() -> None:
         finalized = True
         trace_hook.uninstall()
         thread_hook.uninstall()
-        process_hook.drain_and_merge()
         process_hook.uninstall()
         serialize(graph, args.output)
         print(f"Trace written to {args.output}")
 
-    def _signal_handler(signum: int, frame: types.FrameType | None) -> None:
+    def _shutdown(signum: int, frame: types.FrameType | None) -> None:
         _finalize()
+        process_hook.drain_and_merge()
+        serialize(graph, args.output)
+        print(f"Subprocess traces merged into {args.output}")
         sys.exit(0)
 
     _install_hooks(_finalize, path_filter, graph)
 
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
 
     sys.argv = passthrough
     from vllm_omni.entrypoints.cli.main import main as vllm_omni_main
