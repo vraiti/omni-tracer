@@ -70,9 +70,9 @@ def _install_hooks(finalize_cb: callable, path_filter: PathFilter) -> None:
     _original_build = omni_api.build_openai_app
 
     def _patched_build(*args, **kwargs):
-        from omni_tracer.middleware import TraceMiddleware
+        from omni_tracer.middleware import wrap_app_with_tracing
         app = _original_build(*args, **kwargs)
-        app.add_middleware(TraceMiddleware, path_filter=path_filter)
+        wrap_app_with_tracing(app, path_filter)
         print(
             "Trace middleware installed"
             " (send X-Trace: true header to trace a request)"
