@@ -136,25 +136,8 @@ body {
   gap: 4px;
 }
 
-.obj-children.grid-3x3 {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-rows: auto auto auto;
-  gap: 4px;
-}
-
-.grid-cell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-content: start;
-}
-
-.grid-cell:not(:empty) {
-  border: 1px dotted #333;
-  min-width: 20px;
-  min-height: 12px;
-}
+.obj-children [data-hdir="left"] { margin-right: auto; }
+.obj-children [data-hdir="right"] { margin-left: auto; }
 
 .obj-ref {
   border: 1px dashed #555;

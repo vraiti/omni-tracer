@@ -424,55 +424,30 @@ function sortLevel(
     }
   }
 
-  const hasGrid = classified.some(c => c.hDir !== "center" || c.vDir !== "mid");
   childrenDiv.innerHTML = "";
 
-  if (hasGrid) {
-    childrenDiv.classList.add("grid-3x3");
-    childrenDiv.classList.remove("three-col");
+  for (const c of classified) {
+    if (c.hDir !== "center") c.el.dataset.hdir = c.hDir;
+    else delete c.el.dataset.hdir;
+  }
 
-    const cells: Record<string, HTMLElement[]> = {};
-    for (const v of ["up", "mid", "down"] as VDir[]) {
-      for (const h of ["left", "center", "right"] as HDir[]) {
-        cells[v + "-" + h] = [];
-      }
-    }
+  const up = classified.filter(c => c.vDir === "up");
+  const mid = classified.filter(c => c.vDir === "mid");
+  const down = classified.filter(c => c.vDir === "down");
 
-    for (const c of classified) {
-      cells[c.vDir + "-" + c.hDir].push(c.el);
-    }
-
-    for (const v of ["up", "mid", "down"] as VDir[]) {
-      for (const h of ["left", "center", "right"] as HDir[]) {
-        const items = cells[v + "-" + h];
-        const cell = document.createElement("div");
-        cell.className = "grid-cell cell-" + v + " cell-" + h;
-        for (const el of items) cell.appendChild(el);
-        childrenDiv.appendChild(cell);
-      }
-    }
+  if (up.length > 0 || down.length > 0) {
+    const makeRow = (items: ClassifiedChild[], cls: string) => {
+      if (items.length === 0) return;
+      const row = document.createElement("div");
+      row.className = "child-row " + cls;
+      for (const { el } of items) row.appendChild(el);
+      childrenDiv.appendChild(row);
+    };
+    makeRow(up, "out-up");
+    makeRow(mid, "internal");
+    makeRow(down, "out-down");
   } else {
-    childrenDiv.classList.remove("grid-3x3");
-    childrenDiv.classList.remove("three-col");
-
-    const up = classified.filter(c => c.vDir === "up");
-    const mid = classified.filter(c => c.vDir === "mid");
-    const down = classified.filter(c => c.vDir === "down");
-
-    if (up.length > 0 || down.length > 0) {
-      const makeRow = (items: ClassifiedChild[], cls: string) => {
-        if (items.length === 0) return;
-        const row = document.createElement("div");
-        row.className = "child-row " + cls;
-        for (const { el } of items) row.appendChild(el);
-        childrenDiv.appendChild(row);
-      };
-      makeRow(up, "out-up");
-      makeRow(mid, "internal");
-      makeRow(down, "out-down");
-    } else {
-      for (const { el } of classified) childrenDiv.appendChild(el);
-    }
+    for (const { el } of classified) childrenDiv.appendChild(el);
   }
 
   const dirs = new Set(classified.map(c => c.dir));
