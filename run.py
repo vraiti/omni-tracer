@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import signal
 import subprocess
@@ -10,6 +11,10 @@ import urllib.request
 MODELS = {
     "Tongyi-MAI/Z-Image-Turbo": {
         "args": [],
+        "query": {
+            "url": "http://localhost:8000/v1/images/generations",
+            "body": {"prompt": "a red panda sitting on a park bench", "size": "512x512"},
+        },
     },
     "Qwen/Qwen3-Omni-30B-A3B-Instruct": {
         "args": ["--quantization", "fp8"],
@@ -50,6 +55,11 @@ def main():
         choices=list(MODELS),
         help="Model to serve",
     )
+    parser.add_argument(
+        "--with-query",
+        action="store_true",
+        help="Send a default request to the model before terminating",
+    )
     args = parser.parse_args()
 
     model = MODELS[args.model]
@@ -74,6 +84,24 @@ def main():
             os.killpg(server.pid, signal.SIGTERM)
             server.wait()
             sys.exit(1)
+
+        if args.with_query:
+            query = model.get("query")
+            if not query:
+                print(f"No default query defined for {args.model}", file=sys.stderr)
+            else:
+                print(f"Sending query to {query['url']}")
+                data = json.dumps(query["body"]).encode()
+                req = urllib.request.Request(
+                    query["url"],
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    resp = urllib.request.urlopen(req, timeout=120)
+                    print(f"Query returned {resp.status}")
+                except Exception as exc:
+                    print(f"Query failed: {exc}", file=sys.stderr)
 
         print(f"Sending SIGTERM to process group (pgid {server.pid})")
         os.killpg(server.pid, signal.SIGTERM)
