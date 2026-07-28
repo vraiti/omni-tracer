@@ -104,7 +104,12 @@ function populatePanel(
   const search = filterEl.value.toLowerCase();
   const sorted = Object.entries(counts)
     .filter(([name]) => !search || name.toLowerCase().includes(search))
-    .sort((a, b) => a[0].localeCompare(b[0]));
+    .sort((a, b) => {
+      const aSelected = selectedSet.has(a[0]) ? 0 : 1;
+      const bSelected = selectedSet.has(b[0]) ? 0 : 1;
+      if (aSelected !== bSelected) return aSelected - bSelected;
+      return a[0].localeCompare(b[0]);
+    });
 
   listEl.innerHTML = "";
   for (const [name, count] of sorted) {
