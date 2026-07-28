@@ -7,6 +7,7 @@ let hierarchyEl: HTMLElement;
 
 const NODE_GAP = 24;
 const ROW_GAP = 48;
+const PROCESS_PAD = 16;
 const CHANNEL_SPACING = 16;
 
 export function initEdges(): void {
@@ -147,10 +148,10 @@ function placeNodes(
   byPartition: Map<number, RootEntry[]>,
   extraGap?: Map<number, number>,
 ): void {
-  let y = 0;
+  let y = PROCESS_PAD;
   for (const p of partitions) {
     const row = byPartition.get(p)!;
-    let x = 0;
+    let x = PROCESS_PAD;
     let maxH = 0;
     for (const e of row) {
       e.x = x;
@@ -494,8 +495,8 @@ function sizeContainers(): void {
       if (r > maxRight) maxRight = r;
       if (b > maxBottom) maxBottom = b;
     }
-    container.style.width = (maxRight + 16) + "px";
-    container.style.height = (maxBottom + 16) + "px";
+    container.style.width = (maxRight + PROCESS_PAD) + "px";
+    container.style.height = (maxBottom + PROCESS_PAD) + "px";
   }
 }
 
