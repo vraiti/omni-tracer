@@ -68,6 +68,16 @@ class OwnershipHook:
             owned_uuid = graph.get_object_uuid(id(value))
             if owned_uuid is not None:
                 graph.record_ownership(id(self_obj), id(value), name)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    item_uuid = graph.get_object_uuid(id(item))
+                    if item_uuid is not None:
+                        graph.record_ownership(id(self_obj), id(item), name)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    item_uuid = graph.get_object_uuid(id(item))
+                    if item_uuid is not None:
+                        graph.record_ownership(id(self_obj), id(item), name)
 
         try:
             cls.__setattr__ = _traced_setattr
