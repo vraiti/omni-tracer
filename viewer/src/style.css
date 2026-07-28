@@ -196,25 +196,6 @@ body {
 .depth-6 { background: #323242; }
 .depth-6 > .obj-label { color: #c9a; }
 
-.process-children > .obj-box[draggable] {
-  cursor: grab;
-}
-
-.process-children > .obj-box.dragging {
-  opacity: 0.3;
-}
-
-.process-children > .obj-box.drop-left {
-  border-left: 3px solid #8cf;
-}
-
-.process-children > .obj-box.drop-row-below {
-  border-bottom: 3px solid #8cf;
-}
-
-.process-children.drop-end {
-  border-bottom: 3px solid #8cf;
-}
 
 .hidden { display: none !important; }
 
