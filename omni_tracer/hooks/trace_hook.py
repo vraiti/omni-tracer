@@ -95,6 +95,11 @@ class TraceHook:
 
         if code.co_name == "__init__":
             self._handle_init(frame, code, self_obj)
+            if captured_args and self_obj is not None:
+                obj_uuid = self.graph.get_object_uuid(id(self_obj))
+                if obj_uuid is not None:
+                    for k, v in captured_args.items():
+                        self.graph.record_attr(id(self_obj), k, v)
 
         return self._local_trace
 
