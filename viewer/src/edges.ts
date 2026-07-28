@@ -1,5 +1,6 @@
 import type { Point, Rect, EdgePath } from "./types";
-import { rootRows, setRootRows, saveConfig } from "./state";
+import { rootRows, setRootRows, saveConfig, traceData } from "./state";
+import { findIdentifierPairs } from "./graph";
 
 let edgeLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 let hierarchyEl: HTMLElement;
@@ -1085,6 +1086,29 @@ function drawPaths(paths: EdgePath[]): void {
     path.setAttribute("data-edge-id", p.id);
     path.setAttribute("data-target-uuid", p.targetUuid);
     svg.appendChild(path);
+  }
+
+  if (traceData) {
+    const hRect = hierarchyEl.getBoundingClientRect();
+    const scrollLeft = hierarchyEl.scrollLeft || 0;
+    const scrollTop = hierarchyEl.scrollTop || 0;
+    const pairs = findIdentifierPairs(traceData);
+    for (const [uuidA, uuidB] of pairs) {
+      const elA = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuidA}"]`) as HTMLElement | null;
+      const elB = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuidB}"]`) as HTMLElement | null;
+      if (!elA || !elB) continue;
+      const rA = elA.getBoundingClientRect();
+      const rB = elB.getBoundingClientRect();
+      const ax = rA.left - hRect.left + scrollLeft + rA.width / 2;
+      const ay = rA.top - hRect.top + scrollTop + rA.height / 2;
+      const bx = rB.left - hRect.left + scrollLeft + rB.width / 2;
+      const by = rB.top - hRect.top + scrollTop + rB.height / 2;
+      const path = document.createElementNS(svgNs, "path");
+      path.setAttribute("d", `M${ax},${ay} L${bx},${by}`);
+      path.classList.add("cross-process-edge");
+      path.setAttribute("data-target-uuid", uuidA);
+      svg.appendChild(path);
+    }
   }
 
   hierarchyEl.appendChild(svg);

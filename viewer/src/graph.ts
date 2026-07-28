@@ -155,6 +155,38 @@ export function findRoots(objects: TraceData, epm: EffectiveParentMap): string[]
   return roots;
 }
 
+const IDENTIFIER_ATTRS: Record<string, string> = {
+  "SharedMemory": "_name",
+  "SpinCondition": "notify_address",
+};
+
+export function findIdentifierPairs(objects: TraceData): [string, string][] {
+  const groups = new Map<string, { uuid: string; process: string }[]>();
+
+  for (const [uuid, obj] of Object.entries(objects)) {
+    const cls = getClassName(obj.ref);
+    const attrKey = IDENTIFIER_ATTRS[cls];
+    if (!attrKey) continue;
+    const idValue = obj.attrs?.[attrKey];
+    if (!idValue) continue;
+    const key = cls + ":" + idValue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push({ uuid, process: obj.process });
+  }
+
+  const pairs: [string, string][] = [];
+  for (const members of groups.values()) {
+    for (let i = 0; i < members.length; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        if (members[i].process !== members[j].process) {
+          pairs.push([members[i].uuid, members[j].uuid]);
+        }
+      }
+    }
+  }
+  return pairs;
+}
+
 export function participatesInOwnership(uuid: string, objects: TraceData, pm: ParentMap): boolean {
   const obj = objects[uuid];
   if (!obj) return false;

@@ -243,6 +243,13 @@ body {
   opacity: 0.7;
 }
 
+#edge-svg path.cross-process-edge {
+  stroke: #c95;
+  stroke-width: 3;
+  stroke-dasharray: 8 4;
+  opacity: 0.8;
+}
+
 #edge-svg path.edge-highlight {
   stroke: #8cf;
   stroke-width: 2.5;
