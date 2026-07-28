@@ -594,11 +594,21 @@ function drawEdges(): void {
       }
 
       const length = (face === "top" || face === "bottom") ? rect.w : rect.h;
-      const spacing = length / (edgeList.length + 1);
       const map = new Map<RoutedEdge, number>();
+      const PAD = 6;
 
-      for (let i = 0; i < edgeList.length; i++) {
-        map.set(edgeList[i], spacing * (i + 1));
+      if (edgeList.length === 1 && (face === "top" || face === "bottom")) {
+        // Align slot with opposite endpoint's absolute X, clamped to element bounds
+        const other = (edgeList[0].srcEl === el) ? edgeList[0].tgtEl : edgeList[0].srcEl;
+        const otherRect = elRect(other, hRect, scrollLeft, scrollTop);
+        const otherCx = otherRect.x + otherRect.w / 2;
+        const offset = Math.max(PAD, Math.min(length - PAD, otherCx - rect.x));
+        map.set(edgeList[0], offset);
+      } else {
+        const spacing = length / (edgeList.length + 1);
+        for (let i = 0; i < edgeList.length; i++) {
+          map.set(edgeList[i], spacing * (i + 1));
+        }
       }
       elSlots.set(face, map);
     }
