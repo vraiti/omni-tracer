@@ -181,10 +181,23 @@ function placeNodes(
   byPartition: Map<number, RootEntry[]>,
   extraGap?: Map<number, number>,
 ): void {
+  let maxRowWidth = 0;
+  for (const p of partitions) {
+    const row = byPartition.get(p)!;
+    let w = 0;
+    for (const e of row) w += e.w;
+    w += (row.length - 1) * NODE_GAP;
+    if (w > maxRowWidth) maxRowWidth = w;
+  }
+  const containerWidth = maxRowWidth + PROCESS_PAD * 2;
+
   let y = DROP_MARGIN;
   for (const p of partitions) {
     const row = byPartition.get(p)!;
-    let x = PROCESS_PAD;
+    let rowWidth = 0;
+    for (const e of row) rowWidth += e.w;
+    rowWidth += (row.length - 1) * NODE_GAP;
+    let x = (containerWidth - rowWidth) / 2;
     let maxH = 0;
     for (const e of row) {
       e.x = x;
