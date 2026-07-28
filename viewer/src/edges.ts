@@ -654,32 +654,17 @@ function drawEdges(): void {
     return 0;
   }
 
-  // Track all routed segments to prevent crossings
-  const hSegments: { y: number; xMin: number; xMax: number }[] = [];
-  const vSegments: { x: number; yMin: number; yMax: number }[] = [];
+  // Channel allocator: parallel segments maintain margin only when Y/X ranges overlap
+  const usedChannelY: { y: number; xMin: number; xMax: number }[] = [];
+  const usedChannelX: { x: number; yMin: number; yMax: number }[] = [];
   const ROOT_MARGIN = 20;
-
-  function hitsVertical(y: number, xMin: number, xMax: number): boolean {
-    const lo = Math.min(xMin, xMax);
-    const hi = Math.max(xMin, xMax);
-    return vSegments.some(v => v.x > lo && v.x < hi && v.yMin < y && v.yMax > y);
-  }
-
-  function hitsHorizontal(x: number, yMin: number, yMax: number): boolean {
-    const lo = Math.min(yMin, yMax);
-    const hi = Math.max(yMin, yMax);
-    return hSegments.some(h => h.y > lo && h.y < hi && h.xMin < x && h.xMax > x);
-  }
 
   function allocateChannelY(preferredY: number, xMin: number, xMax: number): number {
     let y = Math.round(preferredY);
     const lo = Math.min(xMin, xMax);
     const hi = Math.max(xMin, xMax);
-    while (
-      hSegments.some(c => c.y === y && c.xMax > lo && c.xMin < hi) ||
-      hitsVertical(y, xMin, xMax)
-    ) y += CHANNEL_SPACING;
-    hSegments.push({ y, xMin: lo, xMax: hi });
+    while (usedChannelY.some(c => c.y === y && c.xMax > lo && c.xMin < hi)) y += CHANNEL_SPACING;
+    usedChannelY.push({ y, xMin: lo, xMax: hi });
     return y;
   }
 
@@ -687,23 +672,9 @@ function drawEdges(): void {
     let x = Math.round(preferredX);
     const lo = Math.min(yMin, yMax);
     const hi = Math.max(yMin, yMax);
-    while (
-      vSegments.some(c => c.x === x && c.yMax > lo && c.yMin < hi) ||
-      hitsHorizontal(x, yMin, yMax)
-    ) x += CHANNEL_SPACING;
-    vSegments.push({ x, yMin: lo, yMax: hi });
+    while (usedChannelX.some(c => c.x === x && c.yMax > lo && c.yMin < hi)) x += CHANNEL_SPACING;
+    usedChannelX.push({ x, yMin: lo, yMax: hi });
     return x;
-  }
-
-  function recordSegments(pts: Point[]): void {
-    for (let j = 0; j < pts.length - 1; j++) {
-      const a = pts[j], b = pts[j + 1];
-      if (Math.abs(a.y - b.y) < 1) {
-        hSegments.push({ y: a.y, xMin: Math.min(a.x, b.x), xMax: Math.max(a.x, b.x) });
-      } else if (Math.abs(a.x - b.x) < 1) {
-        vSegments.push({ x: a.x, yMin: Math.min(a.y, b.y), yMax: Math.max(a.y, b.y) });
-      }
-    }
   }
 
   // Sort edges by source element absolute X so channels don't cross between source verticals
@@ -730,16 +701,24 @@ function drawEdges(): void {
     const srcRootFaceY = srcFace === "top" ? srcRootRect.y : srcRootRect.y + srcRootRect.h;
     const tgtRootFaceY = tgtFace === "top" ? tgtRootRect.y : tgtRootRect.y + tgtRootRect.h;
 
-    let pts: Point[];
-
     if (Math.abs(start.x - end.x) < 1 && Math.abs(srcRootFaceY - tgtRootFaceY) < 1) {
-      pts = [start, end];
-    } else if (rowDelta <= 1) {
+      paths.push({ pts: [start, end], targetUuid: edge.targetUuid, id: "edge_" + i });
+      continue;
+    }
+
+    if (rowDelta <= 1) {
+      // Single-row hop: at most 2 bends
       const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x);
-      pts = [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end];
+      paths.push({
+        pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
+        targetUuid: edge.targetUuid,
+        id: "edge_" + i,
+      });
     } else {
+      // Multi-row: at most 4 bends (child → root face → horizontal → root face → child)
       const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x);
 
+      // Check if horizontal segment crosses any uninvolved roots
       const minX = Math.min(start.x, end.x);
       const maxX = Math.max(start.x, end.x);
       let needsDetour = false;
@@ -753,15 +732,20 @@ function drawEdges(): void {
       }
 
       if (!needsDetour) {
-        pts = [
-          start,
-          { x: start.x, y: srcRootFaceY },
-          { x: start.x, y: midY },
-          { x: end.x, y: midY },
-          { x: end.x, y: tgtRootFaceY },
-          end,
-        ];
+        paths.push({
+          pts: [
+            start,
+            { x: start.x, y: srcRootFaceY },
+            { x: start.x, y: midY },
+            { x: end.x, y: midY },
+            { x: end.x, y: tgtRootFaceY },
+            end,
+          ],
+          targetUuid: edge.targetUuid,
+          id: "edge_" + i,
+        });
       } else {
+        // Route around: vertical channel outside all roots with margin
         const allLeft = Math.min(...Array.from(rootRects.values()).map(r => r.x));
         const allRight = Math.max(...Array.from(rootRects.values()).map(r => r.x + r.w));
         const distLeft = start.x - allLeft + end.x - allLeft;
@@ -770,19 +754,21 @@ function drawEdges(): void {
           distLeft < distRight ? allLeft - ROOT_MARGIN : allRight + ROOT_MARGIN,
           srcRootFaceY, tgtRootFaceY
         );
-        pts = [
-          start,
-          { x: start.x, y: srcRootFaceY },
-          { x: channelX, y: srcRootFaceY },
-          { x: channelX, y: tgtRootFaceY },
-          { x: end.x, y: tgtRootFaceY },
-          end,
-        ];
+
+        paths.push({
+          pts: [
+            start,
+            { x: start.x, y: srcRootFaceY },
+            { x: channelX, y: srcRootFaceY },
+            { x: channelX, y: tgtRootFaceY },
+            { x: end.x, y: tgtRootFaceY },
+            end,
+          ],
+          targetUuid: edge.targetUuid,
+          id: "edge_" + i,
+        });
       }
     }
-
-    paths.push({ pts, targetUuid: edge.targetUuid, id: "edge_" + i });
-    recordSegments(pts);
   }
 
   drawPaths(paths);
