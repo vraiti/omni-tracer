@@ -677,7 +677,15 @@ function drawEdges(): void {
     return x;
   }
 
-  for (let i = 0; i < edges.length; i++) {
+  // Sort edges by target X so channel allocation matches inbound order, minimizing crossings
+  const edgeOrder = edges.map((edge, i) => {
+    const tgtFace = resolveEdgeFace(edge.tgtEl, false, edge);
+    const end = getAnchor(edge.tgtEl, tgtFace, edge);
+    return { idx: i, endX: end.x };
+  });
+  edgeOrder.sort((a, b) => a.endX - b.endX);
+
+  for (const { idx: i } of edgeOrder) {
     const edge = edges[i];
     const rowDelta = Math.abs(edge.srcPartition - edge.tgtPartition);
 
