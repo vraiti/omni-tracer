@@ -265,7 +265,11 @@ function initDragDrop(): void {
   }
 
   hierarchyEl.addEventListener("dragover", e => {
-    const container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
+    let container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
+    if (!container) {
+      const procBox = (e.target as HTMLElement).closest(".process-box") as HTMLElement | null;
+      if (procBox) container = procBox.querySelector(".process-children") as HTMLElement | null;
+    }
     if (!container) { removeHighlight(); return; }
     e.preventDefault();
     e.dataTransfer!.dropEffect = "move";
@@ -327,7 +331,11 @@ function initDragDrop(): void {
     const uuid = e.dataTransfer?.getData("text/plain");
     if (!uuid) { removeHighlight(); return; }
 
-    const container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
+    let container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
+    if (!container) {
+      const procBox = (e.target as HTMLElement).closest(".process-box") as HTMLElement | null;
+      if (procBox) container = procBox.querySelector(".process-children") as HTMLElement | null;
+    }
     if (!container) { removeHighlight(); return; }
 
     const bounds = rowBoundsPerContainer.get(container);
