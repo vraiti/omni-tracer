@@ -137,6 +137,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  align-items: start;
 }
 
 .obj-children [data-hdir="left"] { margin-right: auto; }
