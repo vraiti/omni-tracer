@@ -408,7 +408,18 @@ function renderObject(
   const label = document.createElement("div");
   label.className = "obj-label";
   const className = getClassName(obj.ref);
-  label.textContent = attrName ? attrName + ": " + className : className;
+  if (attrName) {
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "obj-label-attr";
+    nameSpan.textContent = attrName;
+    const classSpan = document.createElement("span");
+    classSpan.className = "obj-label-class";
+    classSpan.textContent = className;
+    label.appendChild(nameSpan);
+    label.appendChild(classSpan);
+  } else {
+    label.textContent = className;
+  }
   box.appendChild(label);
 
   if (collapsedSet.has(uuid)) box.classList.add("collapsed");

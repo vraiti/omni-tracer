@@ -120,6 +120,9 @@ body {
   user-select: none;
 }
 
+.obj-label-attr { display: block; }
+.obj-label-class { display: block; font-size: 11px; opacity: 0.6; }
+
 .obj-box.collapsed > .obj-children { display: none; }
 .obj-box.collapsed > .obj-label::before { content: "\25b6 "; font-size: 9px; }
 
