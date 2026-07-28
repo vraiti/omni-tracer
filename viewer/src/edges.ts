@@ -123,10 +123,30 @@ function layoutNodes(): void {
   }
 
   sizeContainers();
-  requestAnimationFrame(() => drawEdges());
+
+  const applyPositions = () => {
+    for (const e of entries) {
+      e.el.style.left = e.x + "px";
+      e.el.style.top = e.y + "px";
+    }
+    sizeContainers();
+  };
+
+  requestAnimationFrame(() => {
+    const extraGap = drawEdges();
+    if (extraGap.size > 0) {
+      placeNodes(partitions, byPartition, extraGap);
+      applyPositions();
+      requestAnimationFrame(() => drawEdges());
+    }
+  });
 }
 
-function placeNodes(partitions: number[], byPartition: Map<number, RootEntry[]>): void {
+function placeNodes(
+  partitions: number[],
+  byPartition: Map<number, RootEntry[]>,
+  extraGap?: Map<number, number>,
+): void {
   let y = 0;
   for (const p of partitions) {
     const row = byPartition.get(p)!;
@@ -138,7 +158,7 @@ function placeNodes(partitions: number[], byPartition: Map<number, RootEntry[]>)
       x += e.w + NODE_GAP;
       if (e.h > maxH) maxH = e.h;
     }
-    y += maxH + ROW_GAP;
+    y += maxH + ROW_GAP + (extraGap?.get(p) ?? 0);
   }
 }
 
@@ -493,9 +513,9 @@ interface RoutedEdge {
   tgtRootId: string;
 }
 
-function drawEdges(): void {
+function drawEdges(): Map<number, number> {
   const refEls = hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]");
-  if (refEls.length === 0) { clearEdgeSvg(); return; }
+  if (refEls.length === 0) { clearEdgeSvg(); return new Map(); }
 
   const hRect = hierarchyEl.getBoundingClientRect();
   const scrollLeft = hierarchyEl.scrollLeft || 0;
@@ -546,7 +566,7 @@ function drawEdges(): void {
     });
   }
 
-  if (edges.length === 0) { clearEdgeSvg(); return; }
+  if (edges.length === 0) { clearEdgeSvg(); return new Map(); }
 
   // Classify edges and assign faces
   const faceEdges = new Map<Element, { top: RoutedEdge[]; bottom: RoutedEdge[]; left: RoutedEdge[]; right: RoutedEdge[] }>();
@@ -833,7 +853,25 @@ function drawEdges(): void {
     }
   }
 
+  // Compute extra gap needed per row so lowest channel has ROW_GAP clearance to next row
+  const extraGap = new Map<number, number>();
+  const sortedPartitions = Array.from(rowExtents.keys()).sort((a, b) => a - b);
+  for (const [gapRow, bucket] of usedChannelYByGap) {
+    if (bucket.length === 0) continue;
+    const maxChannelY = Math.max(...bucket.map(c => c.y));
+    const nextPartIdx = sortedPartitions.indexOf(gapRow) + 1;
+    if (nextPartIdx >= sortedPartitions.length) continue;
+    const nextPart = sortedPartitions[nextPartIdx];
+    const nextRowTop = rowExtents.get(nextPart)?.top;
+    if (nextRowTop === undefined) continue;
+    const clearance = nextRowTop - maxChannelY;
+    if (clearance < ROW_GAP) {
+      extraGap.set(gapRow, ROW_GAP - clearance);
+    }
+  }
+
   drawPaths(paths);
+  return extraGap;
 }
 
 // ── SVG rendering ───────────────────────────────────────────────
