@@ -2,13 +2,13 @@ import "./style.css";
 import { initTooltip } from "./tooltip";
 import { initEdges } from "./edges";
 import { initRender, render, buildAndRender } from "./render";
-import { initPanels, updateExcludeBtn, updatePinRootBtn, updateEntrypointBtn } from "./panels";
+import { initPanels, updateExcludeBtn, updatePinRootBtn } from "./panels";
 import { initLoader, loadFile, loadFromUrl } from "./loader";
 import { initContextMenu } from "./context-menu";
 import { getLastTrace, resetConfig } from "./state";
 
 initTooltip();
-initEdges();
+initEdges(() => buildAndRender());
 initRender();
 initPanels();
 initLoader();
@@ -36,7 +36,6 @@ document.getElementById("reset-layout-btn")!.addEventListener("click", async () 
   await resetConfig();
   updateExcludeBtn();
   updatePinRootBtn();
-  updateEntrypointBtn();
   buildAndRender();
 });
 

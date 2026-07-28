@@ -7,7 +7,6 @@ export let rendered: Record<string, boolean> = {};
 export let collapsedSet = new Set<string>();
 export let excludedClasses = new Set<string>();
 export let pinnedRootClasses = new Set<string>();
-export let entrypointClasses = new Set<string>();
 export let creationOrder: CreationOrder = {};
 export let effectiveParentMap: EffectiveParentMap = {};
 export let rootRows: string[][] = [];
@@ -22,7 +21,6 @@ export function setRendered(r: Record<string, boolean>) { rendered = r; }
 export function setCreationOrder(co: CreationOrder) { creationOrder = co; }
 export function setEffectiveParentMap(ep: EffectiveParentMap) { effectiveParentMap = ep; }
 export function setRootRows(rows: string[][]) { rootRows = rows; }
-export function setEntrypointClasses(s: Set<string>) { entrypointClasses = s; }
 export function markRendered(uuid: string) { rendered[uuid] = true; }
 export function isRendered(uuid: string): boolean { return !!rendered[uuid]; }
 
@@ -30,7 +28,6 @@ interface Config {
   collapsed?: string[];
   excluded?: string[];
   pinnedRoots?: string[];
-  entrypoints?: string[];
   rootRows?: string[][];
   ownershipOverrides?: Record<string, string>;
 }
@@ -39,7 +36,6 @@ function applyConfig(cfg: Config): void {
   collapsedSet = new Set(cfg.collapsed || []);
   excludedClasses = new Set(cfg.excluded || []);
   pinnedRootClasses = new Set(cfg.pinnedRoots || []);
-  entrypointClasses = new Set(cfg.entrypoints || []);
   rootRows = cfg.rootRows || [];
   ownershipOverrides = cfg.ownershipOverrides || {};
 }
@@ -48,7 +44,6 @@ function clearState(): void {
   collapsedSet = new Set();
   excludedClasses = new Set();
   pinnedRootClasses = new Set();
-  entrypointClasses = new Set();
   rootRows = [];
   ownershipOverrides = {};
 }
@@ -78,7 +73,6 @@ export function saveConfig(): void {
     collapsed: Array.from(collapsedSet),
     excluded: Array.from(excludedClasses),
     pinnedRoots: Array.from(pinnedRootClasses),
-    entrypoints: Array.from(entrypointClasses),
     rootRows,
     ownershipOverrides,
   };

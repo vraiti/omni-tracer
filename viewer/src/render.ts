@@ -78,6 +78,16 @@ export function render(): void {
         const el = renderObject(uuid, 0, new Set(), filterText, showIso);
         if (el) {
           el.dataset.row = String(rowIdx);
+          el.draggable = true;
+          el.addEventListener("dragstart", e => {
+            e.dataTransfer!.setData("text/plain", uuid);
+            e.dataTransfer!.effectAllowed = "move";
+            el.classList.add("dragging");
+          });
+          el.addEventListener("dragend", () => {
+            el.classList.remove("dragging");
+            for (const hl of document.querySelectorAll(".row-drop-highlight")) hl.remove();
+          });
           children.appendChild(el);
           hasContent = true;
         }

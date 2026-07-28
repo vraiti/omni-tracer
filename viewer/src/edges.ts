@@ -1,6 +1,5 @@
 import type { Point, Rect, EdgePath } from "./types";
-import { entrypointClasses } from "./state";
-import { getClassName } from "./graph";
+import { rootRows, setRootRows, saveConfig } from "./state";
 
 let edgeLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 let hierarchyEl: HTMLElement;
@@ -10,8 +9,21 @@ const ROW_GAP = 48;
 const PROCESS_PAD = 16;
 const CHANNEL_SPACING = 16;
 
-export function initEdges(): void {
+interface RowBound {
+  y: number;
+  h: number;
+  partition: number;
+  uuids: string[];
+}
+
+let rowBoundsPerContainer = new Map<HTMLElement, RowBound[]>();
+
+let onDropRebuild: (() => void) | null = null;
+
+export function initEdges(rebuildCallback: () => void): void {
   hierarchyEl = document.getElementById("hierarchy")!;
+  onDropRebuild = rebuildCallback;
+  initDragDrop();
 }
 
 export function scheduleEdgeLayout(): void {
@@ -93,10 +105,6 @@ function layoutNodes(): void {
       });
     }
 
-    if (entrypointClasses.size > 0) {
-      bfsAssignPartitions(entries, rootBoxes);
-    }
-
     const byPartition = new Map<number, RootEntry[]>();
     for (const e of entries) {
       if (!byPartition.has(e.partition)) byPartition.set(e.partition, []);
@@ -128,6 +136,19 @@ function layoutNodes(): void {
     }
 
     allProcessEntries.push({ entries, partitions, byPartition, container });
+  }
+
+  rowBoundsPerContainer = new Map();
+  for (const { partitions, byPartition, container } of allProcessEntries) {
+    const bounds: RowBound[] = [];
+    for (const p of partitions) {
+      const row = byPartition.get(p)!;
+      const y = row[0].y;
+      const maxH = Math.max(...row.map(e => e.h));
+      const uuids = row.map(e => e.el.dataset.uuid || "");
+      bounds.push({ y, h: maxH, partition: p, uuids });
+    }
+    rowBoundsPerContainer.set(container, bounds);
   }
 
   sizeContainers();
@@ -174,54 +195,156 @@ function placeNodes(
   }
 }
 
-function bfsAssignPartitions(entries: RootEntry[], _allRootBoxes: NodeListOf<HTMLElement>): void {
-  const adjacency = new Map<string, Set<string>>();
-  const refEls = hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]");
-  const entryById = new Map<string, RootEntry>();
-  for (const e of entries) entryById.set(e.id, e);
+// ── Drag-and-drop row assignment ────────────────────────────────
 
-  const rootElToId = new Map<HTMLElement, string>();
-  for (const e of entries) rootElToId.set(e.el, e.id);
+function initDragDrop(): void {
+  let highlightEl: HTMLElement | null = null;
+  let activeContainer: HTMLElement | null = null;
 
-  for (const refEl of refEls) {
-    const targetUuid = (refEl as HTMLElement).dataset.refTarget;
-    if (!targetUuid) continue;
-    const targetEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
-    if (!targetEl) continue;
-    const srcRoot = findRootBox(refEl);
-    const tgtRoot = findRootBox(targetEl);
-    if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
-    const srcId = rootElToId.get(srcRoot);
-    const tgtId = rootElToId.get(tgtRoot);
-    if (!srcId || !tgtId) continue;
-    if (!adjacency.has(srcId)) adjacency.set(srcId, new Set());
-    adjacency.get(srcId)!.add(tgtId);
-  }
-
-  const bfsPartition: Record<string, number> = {};
-  const queue: string[] = [];
-  for (const e of entries) {
-    if (entrypointClasses.has(getClassName(e.ref))) {
-      bfsPartition[e.id] = 0;
-      queue.push(e.id);
+  function ensureHighlight(container: HTMLElement): HTMLElement {
+    if (activeContainer !== container || !highlightEl || !highlightEl.parentElement) {
+      removeHighlight();
+      highlightEl = document.createElement("div");
+      highlightEl.className = "row-drop-highlight";
+      container.appendChild(highlightEl);
+      activeContainer = container;
     }
+    return highlightEl;
   }
-  let qi = 0;
-  while (qi < queue.length) {
-    const cur = queue[qi++];
-    const neighbors = adjacency.get(cur);
-    if (!neighbors) continue;
-    for (const nb of neighbors) {
-      if (!(nb in bfsPartition)) {
-        bfsPartition[nb] = bfsPartition[cur] + 1;
-        queue.push(nb);
+
+  function removeHighlight(): void {
+    if (highlightEl && highlightEl.parentElement) {
+      highlightEl.remove();
+    }
+    highlightEl = null;
+    activeContainer = null;
+  }
+
+  hierarchyEl.addEventListener("dragover", e => {
+    const container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
+    if (!container) { removeHighlight(); return; }
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "move";
+
+    const bounds = rowBoundsPerContainer.get(container);
+    if (!bounds || bounds.length === 0) { removeHighlight(); return; }
+
+    const containerRect = container.getBoundingClientRect();
+    const localY = e.clientY - containerRect.top + container.scrollTop;
+
+    const hl = ensureHighlight(container);
+
+    let placed = false;
+    for (let i = 0; i < bounds.length; i++) {
+      const row = bounds[i];
+      const rowTop = row.y;
+      const rowBot = row.y + row.h;
+
+      if (i === 0 && localY < rowTop) {
+        hl.style.top = (rowTop - ROW_GAP / 2) + "px";
+        hl.style.height = "3px";
+        hl.className = "row-drop-highlight new-row";
+        hl.dataset.targetRow = "before:" + i;
+        placed = true;
+        break;
+      }
+
+      if (localY >= rowTop && localY <= rowBot) {
+        hl.style.top = rowTop + "px";
+        hl.style.height = rowBot - rowTop + "px";
+        hl.className = "row-drop-highlight";
+        hl.dataset.targetRow = String(i);
+        placed = true;
+        break;
+      }
+
+      if (i < bounds.length - 1) {
+        const nextTop = bounds[i + 1].y;
+        if (localY > rowBot && localY < nextTop) {
+          hl.style.top = ((rowBot + nextTop) / 2) + "px";
+          hl.style.height = "3px";
+          hl.className = "row-drop-highlight new-row";
+          hl.dataset.targetRow = "after:" + i;
+          placed = true;
+          break;
+        }
       }
     }
+
+    if (!placed) {
+      const last = bounds[bounds.length - 1];
+      if (localY > last.y + last.h) {
+        const y = last.y + last.h + ROW_GAP / 2;
+        hl.style.top = y + "px";
+        hl.style.height = "3px";
+        hl.className = "row-drop-highlight new-row";
+        hl.dataset.targetRow = "after:" + (bounds.length - 1);
+      } else {
+        removeHighlight();
+      }
+    }
+  });
+
+  hierarchyEl.addEventListener("dragleave", e => {
+    if (!hierarchyEl.contains(e.relatedTarget as Node)) {
+      removeHighlight();
+    }
+  });
+
+  hierarchyEl.addEventListener("drop", e => {
+    e.preventDefault();
+    const uuid = e.dataTransfer?.getData("text/plain");
+    if (!uuid) { removeHighlight(); return; }
+
+    const container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
+    if (!container) { removeHighlight(); return; }
+
+    const bounds = rowBoundsPerContainer.get(container);
+    if (!bounds) { removeHighlight(); return; }
+
+    const targetInfo = highlightEl?.dataset.targetRow;
+    removeHighlight();
+    if (!targetInfo) return;
+
+    const newRows = rootRows.map(r => r.filter(u => u !== uuid));
+    const filtered = newRows.filter(r => r.length > 0);
+
+    if (targetInfo.startsWith("before:")) {
+      const idx = parseInt(targetInfo.split(":")[1], 10);
+      const mappedIdx = mapBoundsIdxToRowIdx(bounds, idx, filtered);
+      filtered.splice(mappedIdx, 0, [uuid]);
+    } else if (targetInfo.startsWith("after:")) {
+      const idx = parseInt(targetInfo.split(":")[1], 10);
+      const mappedIdx = mapBoundsIdxToRowIdx(bounds, idx, filtered);
+      filtered.splice(mappedIdx + 1, 0, [uuid]);
+    } else {
+      const idx = parseInt(targetInfo, 10);
+      const row = bounds[idx];
+      if (row) {
+        const targetRow = filtered.find(r => row.uuids.some(u => r.includes(u)));
+        if (targetRow) {
+          targetRow.push(uuid);
+        } else {
+          filtered.push([uuid]);
+        }
+      } else {
+        filtered.push([uuid]);
+      }
+    }
+
+    setRootRows(filtered);
+    saveConfig();
+    if (onDropRebuild) onDropRebuild();
+  });
+}
+
+function mapBoundsIdxToRowIdx(bounds: RowBound[], boundsIdx: number, rows: string[][]): number {
+  if (boundsIdx < 0 || boundsIdx >= bounds.length) return rows.length;
+  const refUuids = bounds[boundsIdx].uuids;
+  for (let i = 0; i < rows.length; i++) {
+    if (refUuids.some(u => rows[i].includes(u))) return i;
   }
-  const maxPartition = Math.max(0, ...Object.values(bfsPartition));
-  for (const e of entries) {
-    e.partition = bfsPartition[e.id] ?? maxPartition + 1;
-  }
+  return rows.length;
 }
 
 function collectCrossEdges(entries: RootEntry[]): CrossEdge[] {

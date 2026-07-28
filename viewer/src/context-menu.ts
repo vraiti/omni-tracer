@@ -1,10 +1,10 @@
 import {
-  traceData, excludedClasses, pinnedRootClasses, entrypointClasses,
+  traceData, excludedClasses, pinnedRootClasses,
   ownershipOverrides, saveConfig,
 } from "./state";
 import { getClassName } from "./graph";
 import { render, buildAndRender } from "./render";
-import { updateExcludeBtn, updatePinRootBtn, updateEntrypointBtn } from "./panels";
+import { updateExcludeBtn, updatePinRootBtn } from "./panels";
 
 let menuEl: HTMLDivElement | null = null;
 
@@ -72,17 +72,6 @@ export function initContextMenu(): void {
           else pinnedRootClasses.add(className);
           saveConfig();
           updatePinRootBtn();
-          buildAndRender();
-        },
-      },
-      {
-        label: "Set " + className + " as entrypoint",
-        checked: entrypointClasses.has(className),
-        action: () => {
-          if (entrypointClasses.has(className)) entrypointClasses.delete(className);
-          else entrypointClasses.add(className);
-          saveConfig();
-          updateEntrypointBtn();
           buildAndRender();
         },
       },

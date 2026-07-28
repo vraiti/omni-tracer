@@ -310,6 +310,25 @@ body {
   font-size: 11px;
 }
 
+.process-children > .obj-box.dragging {
+  opacity: 0.4;
+}
+
+.row-drop-highlight {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+  z-index: 1;
+  transition: top 0.1s, height 0.1s;
+}
+
+.row-drop-highlight.new-row {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
 .context-menu {
   position: fixed;
   background: #1a1a1a;
