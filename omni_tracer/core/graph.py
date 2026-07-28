@@ -67,14 +67,16 @@ class TraceGraph:
         return None
 
     def record_instantiation(
-        self, ref: str, obj_id: int, creator_obj_uuid: str | None = None
+        self, ref: str, obj_id: int,
+        creator_obj_uuid: str | None = None,
+        created_in: str | None = None,
     ) -> str:
         existing = self._resolve_object_uuid(obj_id)
         if existing is not None:
             with self._lock:
                 self._obj_id_to_uuid[obj_id] = existing
             return existing
-        node = ObjectNode(ref=ref, process=self.process_uuid, uuid=self._next_id(), created_by=creator_obj_uuid)
+        node = ObjectNode(ref=ref, process=self.process_uuid, uuid=self._next_id(), created_by=creator_obj_uuid, created_in=created_in)
         with self._lock:
             self.objects[node.uuid] = node
             self._obj_id_to_uuid[obj_id] = node.uuid
@@ -160,6 +162,7 @@ class TraceGraph:
                 process=v["process"],
                 owns=raw_owns,
                 created_by=v.get("created_by"),
+                created_in=v.get("created_in"),
                 attrs=v.get("attrs", {}),
             )
             graph.objects[k] = node

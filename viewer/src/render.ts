@@ -6,7 +6,7 @@ import {
 } from "./state";
 import {
   getClassName, getOwned, getOwnedUuids,
-  buildParentMap, buildCreationOrder, buildEffectiveParentMap,
+  synthesizeLocalOwnership, buildParentMap, buildCreationOrder, buildEffectiveParentMap,
   findRoots, canReach, isPinnedRoot, participatesInOwnership, clearReachCache,
 } from "./graph";
 import { scheduleEdgeLayout, highlightEdges, clearEdgeHighlights } from "./edges";
@@ -30,6 +30,7 @@ export function initRender(): void {
 export function buildAndRender(): void {
   if (!traceData) return;
   clearReachCache();
+  synthesizeLocalOwnership(traceData);
   setParentMap(buildParentMap(traceData));
   setCreationOrder(buildCreationOrder(traceData));
   setEffectiveParentMap(buildEffectiveParentMap(traceData, parentMap, creationOrder));

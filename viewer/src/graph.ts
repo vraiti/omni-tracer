@@ -23,6 +23,26 @@ export function getOwnedUuids(obj: TraceObject): string[] {
   return Object.keys(owns);
 }
 
+export function synthesizeLocalOwnership(objects: TraceData): void {
+  const owned = new Set<string>();
+  for (const obj of Object.values(objects)) {
+    for (const child of getOwnedUuids(obj)) owned.add(child);
+  }
+  for (const [uuid, obj] of Object.entries(objects)) {
+    if (owned.has(uuid)) continue;
+    if (!obj.created_by) continue;
+    const creator = objects[obj.created_by];
+    if (!creator) continue;
+    const funcName = obj.created_in?.split(".").pop() || "?";
+    const label = "local<" + funcName + ">";
+    if (Array.isArray(creator.owns)) {
+      creator.owns = Object.fromEntries(creator.owns.map(u => [u, ""]));
+    }
+    if (!creator.owns) creator.owns = {};
+    (creator.owns as Record<string, string>)[uuid] = label;
+  }
+}
+
 export function buildParentMap(objects: TraceData): ParentMap {
   const pm: ParentMap = {};
   for (const uuid of Object.keys(objects)) {

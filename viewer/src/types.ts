@@ -3,6 +3,7 @@ export interface TraceObject {
   owns: Record<string, string> | string[];
   process: string;
   created_by?: string;
+  created_in?: string;
   attrs?: Record<string, string>;
 }
 
