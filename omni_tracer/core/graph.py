@@ -38,6 +38,8 @@ class TraceGraph:
         ref: str,
         coroutine: str | None = None,
         bound_to: str | None = None,
+        captured_args: dict[str, str] | None = None,
+        timestamp: float | None = None,
     ) -> str:
         node = FunctionNode(
             ref=ref,
@@ -45,6 +47,8 @@ class TraceGraph:
             uuid=self._next_id(),
             coroutine=coroutine,
             bound_to=bound_to,
+            captured_args=captured_args,
+            timestamp=timestamp,
         )
         stack = self._call_stack()
         with self._lock:
@@ -133,6 +137,8 @@ class TraceGraph:
                 instantiates=v.get("instantiates", []),
                 coroutine=v.get("coroutine"),
                 bound_to=v.get("bound_to"),
+                captured_args=v.get("captured_args"),
+                timestamp=v.get("timestamp"),
             )
             graph.functions[k] = node
         for k, v in data.get("objects", {}).items():

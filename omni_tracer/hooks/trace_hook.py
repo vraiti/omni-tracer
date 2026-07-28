@@ -2,22 +2,29 @@ from __future__ import annotations
 
 import inspect
 import sys
+import time
 import types
 from typing import Any
 
 from omni_tracer.core.graph import TraceGraph
-from omni_tracer.filters import PathFilter
+from omni_tracer.filters import ArgCaptureSpec, PathFilter
 from omni_tracer.hooks.ownership import OwnershipHook
 
 CO_COROUTINE = inspect.CO_COROUTINE
 
 
 class TraceHook:
-    def __init__(self, graph: TraceGraph, path_filter: PathFilter) -> None:
+    def __init__(
+        self,
+        graph: TraceGraph,
+        path_filter: PathFilter,
+        capture_specs: list[ArgCaptureSpec] | None = None,
+    ) -> None:
         self.graph = graph
         self.path_filter = path_filter
         self.ownership = OwnershipHook(graph, path_filter)
         self.enabled = True
+        self._capture_specs = capture_specs or []
 
     def install(self) -> None:
         self.ownership.install_module_hook()
@@ -67,8 +74,14 @@ class TraceHook:
         if self_obj is not None:
             bound_to = self.graph.get_object_uuid(id(self_obj))
 
+        captured_args = self._extract_args(frame, code) if self._capture_specs else None
+
         func_uuid = self.graph.record_call(
-            ref, coroutine=coroutine_uuid, bound_to=bound_to,
+            ref,
+            coroutine=coroutine_uuid,
+            bound_to=bound_to,
+            captured_args=captured_args,
+            timestamp=time.time() if captured_args else None,
         )
 
         if code.co_name == "__init__":
@@ -101,6 +114,31 @@ class TraceHook:
             class_ref, id(self_obj), creator_obj_uuid=creator_obj_uuid
         )
         self.ownership.patch_class(cls)
+
+    def _extract_args(
+        self, frame: types.FrameType, code: types.CodeType,
+    ) -> dict[str, str] | None:
+        qualname = code.co_qualname
+        for spec in self._capture_specs:
+            if spec.func_pattern not in qualname:
+                continue
+            result: dict[str, str] = {}
+            for path in spec.paths:
+                parts = path.split(".")
+                var_name = parts[0]
+                val = frame.f_locals.get(var_name)
+                if val is None:
+                    continue
+                for attr in parts[1:]:
+                    val = getattr(val, attr, None)
+                    if val is None:
+                        break
+                try:
+                    result[path] = str(val)
+                except Exception:
+                    result[path] = repr(type(val))
+            return result if result else None
+        return None
 
     def _find_creator(
         self, frame: types.FrameType, self_obj: Any,

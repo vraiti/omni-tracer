@@ -12,6 +12,8 @@ class FunctionNode:
     instantiates: list[str] = field(default_factory=list)
     coroutine: str | None = None
     bound_to: str | None = None
+    captured_args: dict[str, str] | None = None
+    timestamp: float | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -24,6 +26,10 @@ class FunctionNode:
             d["coroutine"] = self.coroutine
         if self.bound_to is not None:
             d["bound_to"] = self.bound_to
+        if self.captured_args is not None:
+            d["captured_args"] = self.captured_args
+        if self.timestamp is not None:
+            d["timestamp"] = self.timestamp
         return d
 
 

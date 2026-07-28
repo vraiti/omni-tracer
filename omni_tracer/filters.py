@@ -1,7 +1,22 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+@dataclass
+class ArgCaptureSpec:
+    """Specifies which function arguments to capture at runtime.
+
+    ``func_pattern`` is matched against the code object's qualname
+    (e.g. ``Scheduler.add_request``).  ``paths`` is a list of dotted
+    extraction paths where the first segment is a local variable name
+    and subsequent segments are attribute lookups
+    (e.g. ``["request.request_id", "request.status"]``).
+    """
+    func_pattern: str
+    paths: list[str] = field(default_factory=lambda: ["self"])
 
 
 class PathFilter:

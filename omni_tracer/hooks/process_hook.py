@@ -14,9 +14,15 @@ _original_process_init = multiprocessing.process.BaseProcess.__init__
 
 
 class ProcessHook:
-    def __init__(self, output_dir: str, tracked_classes: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        output_dir: str,
+        tracked_classes: list[str] | None = None,
+        capture_specs_raw: list[dict] | None = None,
+    ) -> None:
         self.output_dir = output_dir
         self.tracked_classes = tracked_classes or []
+        self.capture_specs_raw = capture_specs_raw or []
         os.makedirs(output_dir, exist_ok=True)
 
     def install(self) -> None:
@@ -34,7 +40,8 @@ class ProcessHook:
         ) -> None:
             if target is not None:
                 wrapped = _TracedTarget(
-                    target, hook.output_dir, hook.tracked_classes
+                    target, hook.output_dir, hook.tracked_classes,
+                    capture_specs_raw=hook.capture_specs_raw,
                 )
                 _original_process_init(
                     proc_self,
@@ -68,14 +75,16 @@ class _TracedTarget:
         original_target: Any,
         output_dir: str,
         tracked_classes: list[str] | None = None,
+        capture_specs_raw: list[dict] | None = None,
     ) -> None:
         self.original_target = original_target
         self.output_dir = output_dir
         self.tracked_classes = tracked_classes or []
+        self.capture_specs_raw = capture_specs_raw or []
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         from omni_tracer.core.graph import TraceGraph
-        from omni_tracer.filters import PathFilter
+        from omni_tracer.filters import ArgCaptureSpec, PathFilter
         from omni_tracer.hooks.trace_hook import TraceHook
 
         pid = os.getpid()
@@ -84,7 +93,8 @@ class _TracedTarget:
         path_filter = PathFilter()
         for cls_name in self.tracked_classes:
             path_filter.track_class(cls_name)
-        trace_hook = TraceHook(local_graph, path_filter)
+        capture_specs = [ArgCaptureSpec(func_pattern=s["func_pattern"], paths=s["paths"]) for s in self.capture_specs_raw]
+        trace_hook = TraceHook(local_graph, path_filter, capture_specs=capture_specs)
 
         def _write_trace():
             trace_hook.uninstall()

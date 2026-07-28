@@ -26,6 +26,16 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
         default=None,
         help="File listing external classes to track, one per line.",
     )
+    parser.add_argument(
+        "--capture-args",
+        action="append",
+        default=[],
+        help=(
+            "Capture function arguments matching PATTERN. "
+            "Format: 'func_pattern:arg1,arg2' or "
+            "'func_pattern:arg.extractor_attr'. May be repeated."
+        ),
+    )
     try:
         sep = sys.argv.index("--")
         tracer_args = sys.argv[1:sep]
