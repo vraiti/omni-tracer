@@ -139,19 +139,7 @@ function layoutNodes(): void {
     allProcessEntries.push({ entries, partitions, byPartition, container });
   }
 
-  rowBoundsPerContainer = new Map();
-  for (const { partitions, byPartition, container } of allProcessEntries) {
-    const bounds: RowBound[] = [];
-    for (const p of partitions) {
-      const row = byPartition.get(p)!;
-      const y = row[0].y;
-      const maxH = Math.max(...row.map(e => e.h));
-      const uuids = row.map(e => e.el.dataset.uuid || "");
-      bounds.push({ y, h: maxH, partition: p, uuids });
-    }
-    rowBoundsPerContainer.set(container, bounds);
-  }
-
+  updateRowBounds(allProcessEntries);
   sizeContainers();
 
   const applyPositions = () => {
@@ -171,6 +159,7 @@ function layoutNodes(): void {
         placeNodes(partitions, byPartition, extraGap);
       }
       applyPositions();
+      updateRowBounds(allProcessEntries);
       requestAnimationFrame(() => drawEdges());
     }
   });
@@ -206,6 +195,21 @@ function placeNodes(
       if (e.h > maxH) maxH = e.h;
     }
     y += maxH + ROW_GAP + (extraGap?.get(p) ?? 0);
+  }
+}
+
+function updateRowBounds(allProcessEntries: { entries: RootEntry[]; partitions: number[]; byPartition: Map<number, RootEntry[]>; container: HTMLElement }[]): void {
+  rowBoundsPerContainer = new Map();
+  for (const { partitions, byPartition, container } of allProcessEntries) {
+    const bounds: RowBound[] = [];
+    for (const p of partitions) {
+      const row = byPartition.get(p)!;
+      const y = row[0].y;
+      const maxH = Math.max(...row.map(e => e.h));
+      const uuids = row.map(e => e.el.dataset.uuid || "");
+      bounds.push({ y, h: maxH, partition: p, uuids });
+    }
+    rowBoundsPerContainer.set(container, bounds);
   }
 }
 
@@ -275,55 +279,39 @@ function initDragDrop(): void {
 
     const hl = ensureHighlight(container);
 
+    const NEW_ROW_ZONE = 12;
     let placed = false;
+
     for (let i = 0; i < bounds.length; i++) {
       const row = bounds[i];
-      const rowTop = row.y;
-      const rowBot = row.y + row.h;
+      const regionTop = i === 0 ? 0 : (bounds[i - 1].y + bounds[i - 1].h + row.y) / 2;
+      const regionBot = i === bounds.length - 1
+        ? row.y + row.h + DROP_MARGIN
+        : (row.y + row.h + bounds[i + 1].y) / 2;
 
-      if (i === 0 && localY < rowTop) {
-        hl.style.top = (rowTop - ROW_GAP / 2) + "px";
+      if (localY < regionTop || localY > regionBot) continue;
+
+      if (localY < regionTop + NEW_ROW_ZONE && i > 0) {
+        hl.style.top = regionTop + "px";
         hl.style.height = "3px";
         hl.className = "row-drop-highlight new-row";
         hl.dataset.targetRow = "before:" + i;
-        placed = true;
-        break;
-      }
-
-      if (localY >= rowTop && localY <= rowBot) {
-        hl.style.top = rowTop + "px";
-        hl.style.height = rowBot - rowTop + "px";
-        hl.className = "row-drop-highlight";
-        hl.dataset.targetRow = String(i);
-        placed = true;
-        break;
-      }
-
-      if (i < bounds.length - 1) {
-        const nextTop = bounds[i + 1].y;
-        if (localY > rowBot && localY < nextTop) {
-          hl.style.top = ((rowBot + nextTop) / 2) + "px";
-          hl.style.height = "3px";
-          hl.className = "row-drop-highlight new-row";
-          hl.dataset.targetRow = "after:" + i;
-          placed = true;
-          break;
-        }
-      }
-    }
-
-    if (!placed) {
-      const last = bounds[bounds.length - 1];
-      if (localY > last.y + last.h) {
-        const y = last.y + last.h + ROW_GAP / 2;
-        hl.style.top = y + "px";
+      } else if (localY > regionBot - NEW_ROW_ZONE && i < bounds.length - 1) {
+        hl.style.top = (regionBot - 3) + "px";
         hl.style.height = "3px";
         hl.className = "row-drop-highlight new-row";
-        hl.dataset.targetRow = "after:" + (bounds.length - 1);
+        hl.dataset.targetRow = "after:" + i;
       } else {
-        removeHighlight();
+        hl.style.top = row.y + "px";
+        hl.style.height = row.h + "px";
+        hl.className = "row-drop-highlight";
+        hl.dataset.targetRow = String(i);
       }
+      placed = true;
+      break;
     }
+
+    if (!placed) removeHighlight();
   });
 
   hierarchyEl.addEventListener("dragleave", e => {
