@@ -526,17 +526,23 @@ interface RoutedEdge {
 }
 
 function drawEdges(): Map<number, number> {
-  const refEls = hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]");
-  if (refEls.length === 0) { clearEdgeSvg(); return new Map(); }
-
   const hRect = hierarchyEl.getBoundingClientRect();
   const scrollLeft = hierarchyEl.scrollLeft || 0;
   const scrollTop = hierarchyEl.scrollTop || 0;
 
-  // Build root box lookup
-  const allRootBoxes = hierarchyEl.querySelectorAll(
-    ":scope > .process-box > .process-children > .obj-box"
-  ) as NodeListOf<HTMLElement>;
+  const processBoxes = hierarchyEl.querySelectorAll(":scope > .process-box") as NodeListOf<HTMLElement>;
+  if (processBoxes.length === 0) { clearEdgeSvg(); return new Map(); }
+
+  const allPaths: EdgePath[] = [];
+  const combinedExtraGap = new Map<number, number>();
+
+  for (const procBox of processBoxes) {
+    const container = procBox.querySelector(".process-children") as HTMLElement;
+    if (!container) continue;
+
+  const allRootBoxes = container.querySelectorAll(":scope > .obj-box") as NodeListOf<HTMLElement>;
+  if (allRootBoxes.length === 0) continue;
+
   const rootElToPartition = new Map<HTMLElement, number>();
   const rootElToId = new Map<HTMLElement, string>();
   let rbIdx = 0;
@@ -544,6 +550,10 @@ function drawEdges(): Map<number, number> {
     rootElToPartition.set(rb, parseInt(rb.dataset.row || "0", 10));
     rootElToId.set(rb, "rb_" + rbIdx++);
   }
+
+  const rootElSet = new Set<HTMLElement>(allRootBoxes);
+
+  const refEls = container.querySelectorAll(".obj-ref[data-ref-target]");
 
   // Collect edges
   const edges: RoutedEdge[] = [];
@@ -557,6 +567,7 @@ function drawEdges(): Map<number, number> {
     const srcRoot = findRootBox(refEl);
     const tgtRoot = findRootBox(targetEl);
     if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
+    if (!rootElSet.has(srcRoot) || !rootElSet.has(tgtRoot)) continue;
 
     const srcId = rootElToId.get(srcRoot) || "";
     const tgtId = rootElToId.get(tgtRoot) || "";
@@ -578,7 +589,7 @@ function drawEdges(): Map<number, number> {
     });
   }
 
-  if (edges.length === 0) { clearEdgeSvg(); return new Map(); }
+  if (edges.length === 0) continue;
 
   // Classify edges and assign faces
   const faceEdges = new Map<Element, { top: RoutedEdge[]; bottom: RoutedEdge[]; left: RoutedEdge[]; right: RoutedEdge[] }>();
@@ -866,7 +877,6 @@ function drawEdges(): Map<number, number> {
   }
 
   // Compute extra gap needed per row so lowest channel has ROW_GAP clearance to next row
-  const extraGap = new Map<number, number>();
   const sortedPartitions = Array.from(rowExtents.keys()).sort((a, b) => a - b);
   for (const [gapRow, bucket] of usedChannelYByGap) {
     if (bucket.length === 0) continue;
@@ -878,12 +888,18 @@ function drawEdges(): Map<number, number> {
     if (nextRowTop === undefined) continue;
     const clearance = nextRowTop - maxChannelY;
     if (clearance < ROW_GAP) {
-      extraGap.set(gapRow, ROW_GAP - clearance);
+      const existing = combinedExtraGap.get(gapRow) ?? 0;
+      combinedExtraGap.set(gapRow, Math.max(existing, ROW_GAP - clearance));
     }
   }
 
-  drawPaths(paths);
-  return extraGap;
+  allPaths.push(...paths);
+
+  } // end per-process loop
+
+  if (allPaths.length === 0) { clearEdgeSvg(); return new Map(); }
+  drawPaths(allPaths);
+  return combinedExtraGap;
 }
 
 // ── SVG rendering ───────────────────────────────────────────────
