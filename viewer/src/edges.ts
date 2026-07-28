@@ -425,11 +425,18 @@ function sortLevel(
     else delete c.el.dataset.hdir;
   }
 
-  const up = classified.filter(c => c.vDir === "up");
-  const mid = classified.filter(c => c.vDir === "mid");
-  const down = classified.filter(c => c.vDir === "down");
+  const center = classified.filter(c => c.hDir === "center");
+  const sideUp = classified.filter(c => c.hDir !== "center" && c.vDir === "up");
+  const sideMid = classified.filter(c => c.hDir !== "center" && c.vDir === "mid");
+  const sideDown = classified.filter(c => c.hDir !== "center" && c.vDir === "down");
 
-  if (up.length > 0 || down.length > 0) {
+  const up = center.filter(c => c.vDir === "up");
+  const mid = center.filter(c => c.vDir === "mid");
+  const down = center.filter(c => c.vDir === "down");
+
+  const hasRows = up.length > 0 || down.length > 0 || sideUp.length > 0 || sideDown.length > 0;
+
+  if (hasRows) {
     const makeRow = (items: ClassifiedChild[], cls: string) => {
       if (items.length === 0) return;
       const row = document.createElement("div");
@@ -437,9 +444,12 @@ function sortLevel(
       for (const { el } of items) row.appendChild(el);
       childrenDiv.appendChild(row);
     };
+    for (const { el } of sideUp) childrenDiv.appendChild(el);
     makeRow(up, "out-up");
     makeRow(mid, "internal");
+    for (const { el } of sideMid) childrenDiv.appendChild(el);
     makeRow(down, "out-down");
+    for (const { el } of sideDown) childrenDiv.appendChild(el);
   } else {
     for (const { el } of classified) childrenDiv.appendChild(el);
   }
