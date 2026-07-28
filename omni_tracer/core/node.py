@@ -40,6 +40,7 @@ class ObjectNode:
     uuid: str = ""
     owns: dict[str, str] = field(default_factory=dict)
     created_by: str | None = None
+    attrs: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = {
@@ -49,4 +50,6 @@ class ObjectNode:
         }
         if self.created_by is not None:
             d["created_by"] = self.created_by
+        if self.attrs:
+            d["attrs"] = self.attrs
         return d

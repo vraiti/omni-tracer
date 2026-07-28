@@ -79,6 +79,13 @@ class OwnershipHook:
                     if item_uuid is not None:
                         graph.record_ownership(id(self_obj), id(item), name)
 
+            if isinstance(value, (str, int, float, bool)):
+                graph.record_attr(id(self_obj), name, str(value))
+            elif value is None:
+                graph.record_attr(id(self_obj), name, "None")
+            elif owned_uuid is None:
+                graph.record_attr(id(self_obj), name, type(value).__qualname__)
+
         try:
             cls.__setattr__ = _traced_setattr
         except TypeError:

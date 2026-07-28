@@ -37,6 +37,11 @@ export function showTooltip(e: MouseEvent, uuid: string): void {
   if (backRefs.length > 0) {
     addLine("back-refs", backRefs.map(p => getClassName(traceData![p].ref)).join(", "));
   }
+  if (obj.attrs) {
+    for (const [k, v] of Object.entries(obj.attrs)) {
+      addLine("." + k, v);
+    }
+  }
   tooltipEl.classList.remove("hidden");
   moveTooltip(e);
 }

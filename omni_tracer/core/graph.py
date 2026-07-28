@@ -91,6 +91,15 @@ class TraceGraph:
                     return True
         return False
 
+    def record_attr(self, obj_id: int, name: str, value_repr: str) -> None:
+        with self._lock:
+            uuid = self._resolve_object_uuid(obj_id)
+            if uuid is None:
+                return
+            node = self.objects.get(uuid)
+            if node is not None:
+                node.attrs[name] = value_repr
+
     def get_object_uuid(self, obj_id: int) -> str | None:
         with self._lock:
             return self._resolve_object_uuid(obj_id)
@@ -151,6 +160,7 @@ class TraceGraph:
                 process=v["process"],
                 owns=raw_owns,
                 created_by=v.get("created_by"),
+                attrs=v.get("attrs", {}),
             )
             graph.objects[k] = node
         return graph
