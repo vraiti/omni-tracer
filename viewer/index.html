@@ -9,7 +9,7 @@
 
 <div id="controls" class="hidden">
   <label id="file-input-label">
-    Load trace
+    Open New Trace
     <input type="file" id="file-input" accept=".json">
   </label>
   <input type="text" id="filter-input" placeholder="Filter by class name...">
@@ -35,6 +35,16 @@
       <div id="pin-root-list"></div>
     </div>
   </div>
+  <div style="position: relative; display: inline-block;">
+    <button id="entrypoint-btn" class="dropdown-btn">Entrypoints &#x25BE;</button>
+    <div id="entrypoint-panel" class="dropdown-panel hidden">
+      <div class="dropdown-search">
+        <input type="text" id="entrypoint-filter" placeholder="Search classes...">
+      </div>
+      <div id="entrypoint-list"></div>
+    </div>
+  </div>
+  <button id="reset-layout-btn" class="dropdown-btn">Reset Layout</button>
   <span id="stats"></span>
 </div>
 

@@ -1,11 +1,13 @@
-import ELK from "elkjs/lib/elk.bundled.js";
-import type { Point, Rect, EdgePath, EdgeInfo } from "./types";
+import type { Point, Rect, EdgePath } from "./types";
+import { entrypointClasses } from "./state";
+import { getClassName } from "./graph";
 
-const elk = new ELK();
-const EDGE_OFFSET_PX = 5;
 let edgeLayoutTimer: ReturnType<typeof setTimeout> | null = null;
-
 let hierarchyEl: HTMLElement;
+
+const NODE_GAP = 24;
+const ROW_GAP = 48;
+const CHANNEL_SPACING = 10;
 
 export function initEdges(): void {
   hierarchyEl = document.getElementById("hierarchy")!;
@@ -13,14 +15,14 @@ export function initEdges(): void {
 
 export function scheduleEdgeLayout(): void {
   if (edgeLayoutTimer !== null) clearTimeout(edgeLayoutTimer);
-  edgeLayoutTimer = setTimeout(layoutEdges, 100);
+  edgeLayoutTimer = setTimeout(layoutNodes, 100);
 }
 
-function findRootBox(el: Element): Element | null {
-  let node = el.closest(".obj-box");
+function findRootBox(el: Element): HTMLElement | null {
+  let node = el.closest(".obj-box") as HTMLElement | null;
   while (node) {
     if (node.parentElement && node.parentElement.classList.contains("process-children")) return node;
-    node = node.parentElement ? node.parentElement.closest(".obj-box") : null;
+    node = node.parentElement ? node.parentElement.closest(".obj-box") as HTMLElement | null : null;
   }
   return null;
 }
@@ -35,77 +37,459 @@ function elRect(el: Element, hRect: DOMRect, scrollLeft: number, scrollTop: numb
   };
 }
 
-type Side = "left" | "right" | "top" | "bottom";
-
-function nearestSide(innerPt: Point, box: Rect): Side {
-  const dLeft = innerPt.x - box.x;
-  const dRight = (box.x + box.w) - innerPt.x;
-  const dTop = innerPt.y - box.y;
-  const dBottom = (box.y + box.h) - innerPt.y;
-  const min = Math.min(dLeft, dRight, dTop, dBottom);
-  if (min === dRight) return "right";
-  if (min === dLeft) return "left";
-  if (min === dBottom) return "bottom";
-  return "top";
-}
-
-function sideExitPoint(box: Rect, side: Side, offset: number): Point {
-  switch (side) {
-    case "right": return { x: box.x + box.w, y: box.y + box.h / 2 + offset };
-    case "left": return { x: box.x, y: box.y + box.h / 2 + offset };
-    case "bottom": return { x: box.x + box.w / 2 + offset, y: box.y + box.h };
-    case "top": return { x: box.x + box.w / 2 + offset, y: box.y };
-  }
-}
-
-function boxEdgePoint(rect: Rect, toward: Point): Point {
-  const cx = rect.x + rect.w / 2;
-  const cy = rect.y + rect.h / 2;
-  const dx = toward.x - cx;
-  const dy = toward.y - cy;
-  if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) return { x: cx, y: cy };
-  const scaleX = rect.w / 2 / Math.abs(dx || 1);
-  const scaleY = rect.h / 2 / Math.abs(dy || 1);
-  const scale = Math.min(scaleX, scaleY);
-  return { x: cx + dx * scale, y: cy + dy * scale };
-}
-
-function orthogonalToSide(pt: Point, exitPt: Point, side: Side): Point[] {
-  if (side === "right" || side === "left") {
-    return [pt, { x: exitPt.x, y: pt.y }, { x: exitPt.x, y: exitPt.y }];
-  }
-  return [pt, { x: pt.x, y: exitPt.y }, { x: exitPt.x, y: exitPt.y }];
-}
-
-interface OffsetEntry {
-  edge: ElkEdgeExt;
-  sortKey: number;
-  offset: number;
-}
-
-interface ElkEdgeExt {
+interface RootEntry {
+  el: HTMLElement;
   id: string;
-  sources: string[];
-  targets: string[];
-  info: EdgeInfo;
-  _srcSide?: Side;
-  _tgtSide?: Side;
-  _elkEdge?: { sections?: { startPoint: Point; endPoint: Point; bendPoints?: Point[] }[] };
+  partition: number;
+  ref: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
-function assignOffsets(edgeGroups: Record<string, OffsetEntry[]>): void {
-  for (const edges of Object.values(edgeGroups)) {
-    const n = edges.length;
-    if (n === 0) continue;
-    edges.sort((a, b) => a.sortKey - b.sortKey);
-    const half = (n - 1) / 2;
-    for (let i = 0; i < n; i++) {
-      edges[i].offset = (i - half) * EDGE_OFFSET_PX;
+interface CrossEdge {
+  srcRootId: string;
+  tgtRootId: string;
+  srcBoxEl: Element;
+  tgtBoxEl: Element;
+  targetUuid: string;
+}
+
+type Face = "top" | "bottom" | "left" | "right";
+
+// ── Node placement ──────────────────────────────────────────────
+
+function layoutNodes(): void {
+  const allRootBoxes = hierarchyEl.querySelectorAll(
+    ":scope > .process-box > .process-children > .obj-box"
+  ) as NodeListOf<HTMLElement>;
+  if (allRootBoxes.length === 0) { clearEdgeSvg(); return; }
+
+  const entries: RootEntry[] = [];
+  let idx = 0;
+  for (const rb of allRootBoxes) {
+    entries.push({
+      el: rb,
+      id: "rb_" + idx++,
+      partition: parseInt(rb.dataset.row || "0", 10),
+      ref: rb.dataset.ref || "",
+      x: 0, y: 0,
+      w: rb.offsetWidth,
+      h: rb.offsetHeight,
+    });
+  }
+
+  // BFS partition assignment when entrypoints are active
+  if (entrypointClasses.size > 0) {
+    bfsAssignPartitions(entries, allRootBoxes);
+  }
+
+  // Group by partition
+  const byPartition = new Map<number, RootEntry[]>();
+  for (const e of entries) {
+    if (!byPartition.has(e.partition)) byPartition.set(e.partition, []);
+    byPartition.get(e.partition)!.push(e);
+  }
+  const partitions = Array.from(byPartition.keys()).sort((a, b) => a - b);
+
+  // Collect cross-root edges for barycenter sorting
+  const crossEdges = collectCrossEdges(entries);
+
+  // Barycenter sort within each row
+  barycenterSort(partitions, byPartition, crossEdges, entries);
+
+  // Initial layout pass to trigger child rearrangement
+  placeNodes(partitions, byPartition);
+  for (const e of entries) {
+    e.el.style.left = e.x + "px";
+    e.el.style.top = e.y + "px";
+    e.el.style.visibility = "visible";
+    e.el.dataset.row = String(e.partition);
+  }
+  rearrangeChildren();
+
+  // Re-measure after rearrangement (children may have changed box sizes)
+  for (const e of entries) {
+    e.w = e.el.offsetWidth;
+    e.h = e.el.offsetHeight;
+  }
+
+  // Final layout pass with correct sizes
+  placeNodes(partitions, byPartition);
+  for (const e of entries) {
+    e.el.style.left = e.x + "px";
+    e.el.style.top = e.y + "px";
+  }
+
+  sizeContainers();
+  requestAnimationFrame(() => drawEdges());
+}
+
+function placeNodes(partitions: number[], byPartition: Map<number, RootEntry[]>): void {
+  let y = 0;
+  for (const p of partitions) {
+    const row = byPartition.get(p)!;
+    let x = 0;
+    let maxH = 0;
+    for (const e of row) {
+      e.x = x;
+      e.y = y;
+      x += e.w + NODE_GAP;
+      if (e.h > maxH) maxH = e.h;
+    }
+    y += maxH + ROW_GAP;
+  }
+}
+
+function bfsAssignPartitions(entries: RootEntry[], _allRootBoxes: NodeListOf<HTMLElement>): void {
+  const adjacency = new Map<string, Set<string>>();
+  const refEls = hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]");
+  const entryById = new Map<string, RootEntry>();
+  for (const e of entries) entryById.set(e.id, e);
+
+  const rootElToId = new Map<HTMLElement, string>();
+  for (const e of entries) rootElToId.set(e.el, e.id);
+
+  for (const refEl of refEls) {
+    const targetUuid = (refEl as HTMLElement).dataset.refTarget;
+    if (!targetUuid) continue;
+    const targetEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
+    if (!targetEl) continue;
+    const srcRoot = findRootBox(refEl);
+    const tgtRoot = findRootBox(targetEl);
+    if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
+    const srcId = rootElToId.get(srcRoot);
+    const tgtId = rootElToId.get(tgtRoot);
+    if (!srcId || !tgtId) continue;
+    if (!adjacency.has(srcId)) adjacency.set(srcId, new Set());
+    adjacency.get(srcId)!.add(tgtId);
+  }
+
+  const bfsPartition: Record<string, number> = {};
+  const queue: string[] = [];
+  for (const e of entries) {
+    if (entrypointClasses.has(getClassName(e.ref))) {
+      bfsPartition[e.id] = 0;
+      queue.push(e.id);
+    }
+  }
+  let qi = 0;
+  while (qi < queue.length) {
+    const cur = queue[qi++];
+    const neighbors = adjacency.get(cur);
+    if (!neighbors) continue;
+    for (const nb of neighbors) {
+      if (!(nb in bfsPartition)) {
+        bfsPartition[nb] = bfsPartition[cur] + 1;
+        queue.push(nb);
+      }
+    }
+  }
+  const maxPartition = Math.max(0, ...Object.values(bfsPartition));
+  for (const e of entries) {
+    e.partition = bfsPartition[e.id] ?? maxPartition + 1;
+  }
+}
+
+function collectCrossEdges(entries: RootEntry[]): CrossEdge[] {
+  const rootElToId = new Map<HTMLElement, string>();
+  for (const e of entries) rootElToId.set(e.el, e.id);
+
+  const edges: CrossEdge[] = [];
+  const seen = new Set<string>();
+  const refEls = hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]");
+
+  for (const refEl of refEls) {
+    const targetUuid = (refEl as HTMLElement).dataset.refTarget;
+    if (!targetUuid) continue;
+    const targetEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
+    if (!targetEl) continue;
+    const srcRoot = findRootBox(refEl);
+    const tgtRoot = findRootBox(targetEl);
+    if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
+    const srcId = rootElToId.get(srcRoot);
+    const tgtId = rootElToId.get(tgtRoot);
+    if (!srcId || !tgtId) continue;
+
+    const srcBox = refEl.closest(".obj-box");
+    if (!srcBox) continue;
+    const key = srcId + ">" + tgtId + ">" + targetUuid;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    edges.push({ srcRootId: srcId, tgtRootId: tgtId, srcBoxEl: srcBox, tgtBoxEl: targetEl, targetUuid });
+  }
+  return edges;
+}
+
+// ── Barycenter crossing minimization ────────────────────────────
+
+function barycenterSort(
+  partitions: number[],
+  byPartition: Map<number, RootEntry[]>,
+  crossEdges: CrossEdge[],
+  entries: RootEntry[],
+): void {
+  if (partitions.length < 2) return;
+
+  const entryById = new Map<string, RootEntry>();
+  for (const e of entries) entryById.set(e.id, e);
+
+  // Assign initial x order indices within each row
+  for (const p of partitions) {
+    const row = byPartition.get(p)!;
+    let x = 0;
+    for (const e of row) {
+      e.x = x;
+      x += e.w + NODE_GAP;
+    }
+  }
+
+  // Build adjacency: for each node, which nodes in adjacent rows is it connected to?
+  const neighbors = new Map<string, string[]>();
+  for (const edge of crossEdges) {
+    if (!neighbors.has(edge.srcRootId)) neighbors.set(edge.srcRootId, []);
+    if (!neighbors.has(edge.tgtRootId)) neighbors.set(edge.tgtRootId, []);
+    neighbors.get(edge.srcRootId)!.push(edge.tgtRootId);
+    neighbors.get(edge.tgtRootId)!.push(edge.srcRootId);
+  }
+
+  // Top-down sweep: sort each row by barycenter of connected nodes in previous row
+  for (let i = 1; i < partitions.length; i++) {
+    const row = byPartition.get(partitions[i])!;
+    const prevRow = byPartition.get(partitions[i - 1])!;
+    const prevXCenter = new Map<string, number>();
+    for (const e of prevRow) {
+      prevXCenter.set(e.id, e.x + e.w / 2);
+    }
+
+    row.sort((a, b) => {
+      const aNeighbors = (neighbors.get(a.id) || []).filter(n => prevXCenter.has(n));
+      const bNeighbors = (neighbors.get(b.id) || []).filter(n => prevXCenter.has(n));
+      const aBarycenter = aNeighbors.length > 0
+        ? aNeighbors.reduce((s, n) => s + prevXCenter.get(n)!, 0) / aNeighbors.length
+        : Infinity;
+      const bBarycenter = bNeighbors.length > 0
+        ? bNeighbors.reduce((s, n) => s + prevXCenter.get(n)!, 0) / bNeighbors.length
+        : Infinity;
+      return aBarycenter - bBarycenter;
+    });
+
+    // Recompute x positions after sort
+    let x = 0;
+    for (const e of row) {
+      e.x = x;
+      x += e.w + NODE_GAP;
     }
   }
 }
 
-function layoutEdges(): void {
+// ── Child rearrangement ─────────────────────────────────────────
+
+type RefDir = "up" | "down" | "none" | "mixed";
+
+interface RootMaps {
+  yByUuid: Record<string, number>;
+  xByUuid: Record<string, number>;
+  partByUuid: Record<string, number>;
+}
+
+function rearrangeChildren(): void {
+  const rootBoxes = hierarchyEl.querySelectorAll(
+    ":scope > .process-box > .process-children > .obj-box"
+  ) as NodeListOf<HTMLElement>;
+
+  const maps: RootMaps = { yByUuid: {}, xByUuid: {}, partByUuid: {} };
+  for (const rb of rootBoxes) {
+    const y = rb.offsetTop;
+    const xCenter = rb.offsetLeft + rb.offsetWidth / 2;
+    const part = parseInt(rb.dataset.row || "0", 10);
+    const uuid = rb.dataset.uuid;
+    if (uuid) {
+      maps.yByUuid[uuid] = y;
+      maps.xByUuid[uuid] = xCenter;
+      maps.partByUuid[uuid] = part;
+    }
+    for (const inner of rb.querySelectorAll(".obj-box[data-uuid]") as NodeListOf<HTMLElement>) {
+      if (inner.dataset.uuid) {
+        maps.yByUuid[inner.dataset.uuid] = y;
+        maps.xByUuid[inner.dataset.uuid] = xCenter;
+        maps.partByUuid[inner.dataset.uuid] = part;
+      }
+    }
+  }
+
+  for (const rb of rootBoxes) {
+    const srcPart = parseInt(rb.dataset.row || "0", 10);
+    const srcXCenter = rb.offsetLeft + rb.offsetWidth / 2;
+    sortLevel(rb, rb.offsetTop, srcPart, srcXCenter, maps);
+  }
+}
+
+type VDir = "up" | "mid" | "down";
+type HDir = "left" | "center" | "right";
+
+interface ClassifiedChild {
+  el: HTMLElement;
+  dir: RefDir;
+  vDir: VDir;
+  hDir: HDir;
+}
+
+interface SortResult { dir: RefDir; hDir: HDir }
+
+function sortLevel(
+  parent: HTMLElement, rootY: number, srcPart: number, srcXCenter: number, maps: RootMaps
+): SortResult {
+  const childrenDiv = parent.querySelector(":scope > .obj-children");
+  if (!childrenDiv) return { dir: "none", hDir: "center" };
+
+  const children = Array.from(childrenDiv.children) as HTMLElement[];
+  const classified: ClassifiedChild[] = [];
+  let leftCount = 0;
+  let rightCount = 0;
+
+  for (const child of children) {
+    if (child.classList.contains("obj-ref")) {
+      const info = classifyRef(child, rootY, srcPart, maps);
+      let vDir: VDir = "mid";
+      if (info.dir === "up") vDir = "up";
+      else if (info.dir === "down") vDir = "down";
+
+      let hDir: HDir = "center";
+      if (info.rowDist > 1) {
+        const targetX = info.targetXCenter ?? srcXCenter;
+        if (targetX < srcXCenter) { hDir = "left"; leftCount++; }
+        else if (targetX > srcXCenter) { hDir = "right"; rightCount++; }
+        else if (leftCount <= rightCount) { hDir = "left"; leftCount++; }
+        else { hDir = "right"; rightCount++; }
+      }
+
+      classified.push({ el: child, dir: info.dir, vDir, hDir });
+    } else if (child.classList.contains("obj-box")) {
+      const result = sortLevel(child, rootY, srcPart, srcXCenter, maps);
+      let vDir: VDir = "mid";
+      if (result.dir === "up") vDir = "up";
+      else if (result.dir === "down") vDir = "down";
+      classified.push({ el: child, dir: result.dir, vDir, hDir: result.hDir });
+    } else {
+      classified.push({ el: child, dir: "none", vDir: "mid", hDir: "center" });
+    }
+  }
+
+  const hasGrid = classified.some(c => c.hDir !== "center" || c.vDir !== "mid");
+  childrenDiv.innerHTML = "";
+
+  if (hasGrid) {
+    childrenDiv.classList.add("grid-3x3");
+    childrenDiv.classList.remove("three-col");
+
+    const cells: Record<string, HTMLElement[]> = {};
+    for (const v of ["up", "mid", "down"] as VDir[]) {
+      for (const h of ["left", "center", "right"] as HDir[]) {
+        cells[v + "-" + h] = [];
+      }
+    }
+
+    for (const c of classified) {
+      cells[c.vDir + "-" + c.hDir].push(c.el);
+    }
+
+    for (const v of ["up", "mid", "down"] as VDir[]) {
+      for (const h of ["left", "center", "right"] as HDir[]) {
+        const items = cells[v + "-" + h];
+        const cell = document.createElement("div");
+        cell.className = "grid-cell cell-" + v + " cell-" + h;
+        for (const el of items) cell.appendChild(el);
+        childrenDiv.appendChild(cell);
+      }
+    }
+  } else {
+    childrenDiv.classList.remove("grid-3x3");
+    childrenDiv.classList.remove("three-col");
+
+    const up = classified.filter(c => c.vDir === "up");
+    const mid = classified.filter(c => c.vDir === "mid");
+    const down = classified.filter(c => c.vDir === "down");
+
+    if (up.length > 0 || down.length > 0) {
+      const makeRow = (items: ClassifiedChild[], cls: string) => {
+        if (items.length === 0) return;
+        const row = document.createElement("div");
+        row.className = "child-row " + cls;
+        for (const { el } of items) row.appendChild(el);
+        childrenDiv.appendChild(row);
+      };
+      makeRow(up, "out-up");
+      makeRow(mid, "internal");
+      makeRow(down, "out-down");
+    } else {
+      for (const { el } of classified) childrenDiv.appendChild(el);
+    }
+  }
+
+  const dirs = new Set(classified.map(c => c.dir));
+  dirs.delete("none");
+  const dir: RefDir = dirs.size === 0 ? "none" : dirs.size === 1 ? dirs.values().next().value as RefDir : "mixed";
+
+  const sideChildren = classified.filter(c => c.hDir !== "center");
+  let dominantH: HDir = "center";
+  if (sideChildren.length > 0) {
+    const leftN = sideChildren.filter(c => c.hDir === "left").length;
+    const rightN = sideChildren.filter(c => c.hDir === "right").length;
+    dominantH = rightN >= leftN ? "right" : "left";
+  }
+
+  return { dir, hDir: dominantH };
+}
+
+function classifyRef(
+  ref: HTMLElement, rootY: number, srcPart: number, maps: RootMaps
+): { dir: RefDir; rowDist: number; targetXCenter: number | null } {
+  const tid = ref.dataset.refTarget;
+  if (!tid) return { dir: "none", rowDist: 0, targetXCenter: null };
+  const ty = maps.yByUuid[tid];
+  if (ty === undefined || ty === rootY) return { dir: "none", rowDist: 0, targetXCenter: null };
+  const tgtPart = maps.partByUuid[tid] ?? srcPart;
+  const rowDist = Math.abs(tgtPart - srcPart);
+  const targetXCenter = maps.xByUuid[tid] ?? null;
+  return { dir: ty < rootY ? "up" : "down", rowDist, targetXCenter };
+}
+
+// ── Container sizing ────────────────────────────────────────────
+
+function sizeContainers(): void {
+  const containers = hierarchyEl.querySelectorAll(".process-children") as NodeListOf<HTMLElement>;
+  for (const container of containers) {
+    let maxRight = 0;
+    let maxBottom = 0;
+    for (const child of container.querySelectorAll(":scope > .obj-box") as NodeListOf<HTMLElement>) {
+      const r = child.offsetLeft + child.offsetWidth;
+      const b = child.offsetTop + child.offsetHeight;
+      if (r > maxRight) maxRight = r;
+      if (b > maxBottom) maxBottom = b;
+    }
+    container.style.width = (maxRight + 16) + "px";
+    container.style.height = (maxBottom + 16) + "px";
+  }
+}
+
+// ── Edge drawing ────────────────────────────────────────────────
+
+interface RoutedEdge {
+  srcEl: Element;
+  tgtEl: Element;
+  srcRoot: HTMLElement;
+  tgtRoot: HTMLElement;
+  targetUuid: string;
+  srcPartition: number;
+  tgtPartition: number;
+  srcRootId: string;
+  tgtRootId: string;
+}
+
+function drawEdges(): void {
   const refEls = hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]");
   if (refEls.length === 0) { clearEdgeSvg(); return; }
 
@@ -113,202 +497,236 @@ function layoutEdges(): void {
   const scrollLeft = hierarchyEl.scrollLeft || 0;
   const scrollTop = hierarchyEl.scrollTop || 0;
 
-  const edgeInfos: EdgeInfo[] = [];
+  // Build root box lookup
+  const allRootBoxes = hierarchyEl.querySelectorAll(
+    ":scope > .process-box > .process-children > .obj-box"
+  ) as NodeListOf<HTMLElement>;
+  const rootElToPartition = new Map<HTMLElement, number>();
+  const rootElToId = new Map<HTMLElement, string>();
+  let rbIdx = 0;
+  for (const rb of allRootBoxes) {
+    rootElToPartition.set(rb, parseInt(rb.dataset.row || "0", 10));
+    rootElToId.set(rb, "rb_" + rbIdx++);
+  }
+
+  // Collect edges
+  const edges: RoutedEdge[] = [];
+  const seen = new Set<string>();
 
   for (const refEl of refEls) {
     const targetUuid = (refEl as HTMLElement).dataset.refTarget;
     if (!targetUuid) continue;
     const targetEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
     if (!targetEl) continue;
-
     const srcRoot = findRootBox(refEl);
     const tgtRoot = findRootBox(targetEl);
-    if (!srcRoot || !tgtRoot) continue;
+    if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
 
-    edgeInfos.push({
-      refEl,
-      targetEl,
-      targetUuid,
+    const srcId = rootElToId.get(srcRoot) || "";
+    const tgtId = rootElToId.get(tgtRoot) || "";
+    const key = (refEl as HTMLElement).dataset.uuid + ">" + targetUuid;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    edges.push({
+      srcEl: refEl,
+      tgtEl: targetEl,
       srcRoot,
       tgtRoot,
-      sameRoot: srcRoot === tgtRoot,
-      refRect: elRect(refEl, hRect, scrollLeft, scrollTop),
-      tgtRect: elRect(targetEl, hRect, scrollLeft, scrollTop),
-      srcRootRect: elRect(srcRoot, hRect, scrollLeft, scrollTop),
-      tgtRootRect: elRect(tgtRoot, hRect, scrollLeft, scrollTop),
+      targetUuid,
+      srcPartition: rootElToPartition.get(srcRoot) || 0,
+      tgtPartition: rootElToPartition.get(tgtRoot) || 0,
+      srcRootId: srcId,
+      tgtRootId: tgtId,
     });
   }
 
-  if (edgeInfos.length === 0) { clearEdgeSvg(); return; }
+  if (edges.length === 0) { clearEdgeSvg(); return; }
 
-  const crossEdges = edgeInfos.filter(e => !e.sameRoot);
-  const sameEdges = edgeInfos.filter(e => e.sameRoot);
+  // Classify edges and assign faces
+  const faceEdges = new Map<Element, { top: RoutedEdge[]; bottom: RoutedEdge[]; left: RoutedEdge[]; right: RoutedEdge[] }>();
 
-  const rootBoxMap = new Map<Element, { id: string; rect: Rect }>();
-  const allRootBoxes = hierarchyEl.querySelectorAll(":scope > .process-box > .process-children > .obj-box");
-  let rbIdx = 0;
-  for (const rb of allRootBoxes) {
-    if (!rootBoxMap.has(rb)) {
-      rootBoxMap.set(rb, { id: "rb_" + rbIdx++, rect: elRect(rb, hRect, scrollLeft, scrollTop) });
-    }
+  function getFace(el: Element) {
+    if (!faceEdges.has(el)) faceEdges.set(el, { top: [], bottom: [], left: [], right: [] });
+    return faceEdges.get(el)!;
   }
 
-  const elkEdges: ElkEdgeExt[] = crossEdges.map((e, i) => ({
-    id: "e_" + i,
-    sources: [rootBoxMap.get(e.srcRoot)!.id],
-    targets: [rootBoxMap.get(e.tgtRoot)!.id],
-    info: e,
-  }));
+  for (const edge of edges) {
+    const rowDelta = Math.abs(edge.srcPartition - edge.tgtPartition);
+    const srcAbove = edge.srcPartition < edge.tgtPartition;
 
-  const NODE_PADDING = 8;
-  const elkNodes: { id: string; x: number; y: number; width: number; height: number }[] = [];
-  for (const [, { id, rect }] of rootBoxMap) {
-    elkNodes.push({
-      id,
-      x: rect.x - NODE_PADDING,
-      y: rect.y - NODE_PADDING,
-      width: rect.w + NODE_PADDING * 2,
-      height: rect.h + NODE_PADDING * 2,
-    });
-  }
-
-  const elkGraph = {
-    id: "root",
-    layoutOptions: {
-      "elk.algorithm": "fixed",
-      "elk.edgeRouting": "ORTHOGONAL",
-      "elk.spacing.edgeEdge": "8",
-      "elk.spacing.edgeNode": "12",
-      "elk.spacing.nodeNode": "16",
-    },
-    children: elkNodes,
-    edges: elkEdges.map(e => ({ id: e.id, sources: e.sources, targets: e.targets })),
-  };
-
-  elk.layout(elkGraph).then(result => {
-    const elkEdgeMap: Record<string, typeof result.edges extends (infer E)[] | undefined ? E : never> = {};
-    if (result.edges) for (const e of result.edges) elkEdgeMap[e.id] = e;
-
-    const srcExitGroups: Record<string, OffsetEntry[]> = {};
-    const tgtEntryGroups: Record<string, OffsetEntry[]> = {};
-
-    for (const ee of elkEdges) {
-      const info = ee.info;
-      const srcCenter: Point = { x: info.refRect.x + info.refRect.w / 2, y: info.refRect.y + info.refRect.h / 2 };
-      const tgtCenter: Point = { x: info.tgtRect.x + info.tgtRect.w / 2, y: info.tgtRect.y + info.tgtRect.h / 2 };
-
-      const elkEdge = elkEdgeMap[ee.id];
-      let firstExtPt: Point;
-      let _lastExtPt: Point;
-      if (elkEdge && (elkEdge as Record<string, unknown>).sections) {
-        const sections = (elkEdge as Record<string, unknown>).sections as { startPoint: Point; endPoint: Point; bendPoints?: Point[] }[];
-        if (sections.length > 0) {
-          const sec = sections[0];
-          firstExtPt = sec.bendPoints && sec.bendPoints.length > 0 ? sec.bendPoints[0] : sec.endPoint;
-          _lastExtPt = sec.bendPoints && sec.bendPoints.length > 0 ? sec.bendPoints[sec.bendPoints.length - 1] : sec.startPoint;
-        } else {
-          firstExtPt = tgtCenter;
-          _lastExtPt = srcCenter;
-        }
+    if (rowDelta === 1) {
+      // Single-row hop: top/bottom faces
+      if (srcAbove) {
+        getFace(edge.srcEl).bottom.push(edge);
+        getFace(edge.tgtEl).top.push(edge);
       } else {
-        firstExtPt = tgtCenter;
-        _lastExtPt = srcCenter;
+        getFace(edge.srcEl).top.push(edge);
+        getFace(edge.tgtEl).bottom.push(edge);
       }
-      void firstExtPt;
-      void _lastExtPt;
+    } else {
+      // Same-row or multi-row: side faces based on root box x-centers
+      const srcRootRect = elRect(edge.srcRoot, hRect, scrollLeft, scrollTop);
+      const tgtRootRect = elRect(edge.tgtRoot, hRect, scrollLeft, scrollTop);
+      const srcRootCx = srcRootRect.x + srcRootRect.w / 2;
+      const tgtRootCx = tgtRootRect.x + tgtRootRect.w / 2;
 
-      const srcSide = nearestSide(srcCenter, info.srcRootRect);
-      const tgtSide = nearestSide(tgtCenter, info.tgtRootRect);
+      let side: "left" | "right";
+      if (tgtRootCx < srcRootCx) {
+        side = "left";
+      } else if (tgtRootCx > srcRootCx) {
+        side = "right";
+      } else {
+        const srcFace = getFace(edge.srcEl);
+        side = srcFace.left.length <= srcFace.right.length ? "left" : "right";
+      }
 
-      const srcKey = rootBoxMap.get(info.srcRoot)!.id + "_" + srcSide;
-      const tgtKey = rootBoxMap.get(info.tgtRoot)!.id + "_" + tgtSide;
-
-      if (!srcExitGroups[srcKey]) srcExitGroups[srcKey] = [];
-      srcExitGroups[srcKey].push({
-        edge: ee,
-        sortKey: (srcSide === "top" || srcSide === "bottom") ? srcCenter.x : srcCenter.y,
-        offset: 0,
-      });
-
-      if (!tgtEntryGroups[tgtKey]) tgtEntryGroups[tgtKey] = [];
-      tgtEntryGroups[tgtKey].push({
-        edge: ee,
-        sortKey: (tgtSide === "top" || tgtSide === "bottom") ? tgtCenter.x : tgtCenter.y,
-        offset: 0,
-      });
-
-      ee._srcSide = srcSide;
-      ee._tgtSide = tgtSide;
-      ee._elkEdge = elkEdge as ElkEdgeExt["_elkEdge"];
+      getFace(edge.srcEl)[side].push(edge);
+      getFace(edge.tgtEl)[side].push(edge);
     }
+  }
 
-    assignOffsets(srcExitGroups);
-    assignOffsets(tgtEntryGroups);
+  // Compute slot positions for each face of each element
+  type SlotMap = Map<Element, Map<Face, Map<RoutedEdge, number>>>;
+  const slotPositions: SlotMap = new Map();
 
-    const srcOffsetMap: Record<string, number> = {};
-    for (const entries of Object.values(srcExitGroups))
-      for (const entry of entries) srcOffsetMap[entry.edge.id] = entry.offset;
-    const tgtOffsetMap: Record<string, number> = {};
-    for (const entries of Object.values(tgtEntryGroups))
-      for (const entry of entries) tgtOffsetMap[entry.edge.id] = entry.offset;
+  for (const [el, faces] of faceEdges) {
+    const rect = elRect(el, hRect, scrollLeft, scrollTop);
+    const elSlots = new Map<Face, Map<RoutedEdge, number>>();
 
-    const paths: EdgePath[] = [];
+    for (const face of ["top", "bottom", "left", "right"] as Face[]) {
+      const edgeList = faces[face];
+      if (edgeList.length === 0) continue;
 
-    for (const ee of elkEdges) {
-      const info = ee.info;
-      const exitPt = sideExitPoint(info.srcRootRect, ee._srcSide!, srcOffsetMap[ee.id] || 0);
-      const entryPt = sideExitPoint(info.tgtRootRect, ee._tgtSide!, tgtOffsetMap[ee.id] || 0);
-      const srcEdge = boxEdgePoint(info.refRect, exitPt);
-      const tgtEdge = boxEdgePoint(info.tgtRect, entryPt);
-      const srcPath = orthogonalToSide(srcEdge, exitPt, ee._srcSide!);
-      const tgtPath = orthogonalToSide(tgtEdge, entryPt, ee._tgtSide!).reverse();
+      const length = (face === "top" || face === "bottom") ? rect.w : rect.h;
+      const spacing = length / (edgeList.length + 1);
+      const map = new Map<RoutedEdge, number>();
 
-      let midPath: Point[] = [];
-      const elkE = ee._elkEdge;
-      if (elkE && elkE.sections && elkE.sections.length > 0) {
-        const sec = elkE.sections[0];
-        if (sec.bendPoints) midPath = sec.bendPoints.map(p => ({ x: p.x, y: p.y }));
+      for (let i = 0; i < edgeList.length; i++) {
+        map.set(edgeList[i], spacing * (i + 1));
+      }
+      elSlots.set(face, map);
+    }
+    slotPositions.set(el, elSlots);
+  }
+
+  // Helper to get anchor point for an edge at a given element's face
+  function getAnchor(el: Element, face: Face, edge: RoutedEdge): Point {
+    const rect = elRect(el, hRect, scrollLeft, scrollTop);
+    const elSlots = slotPositions.get(el);
+    const faceSlots = elSlots?.get(face);
+    const offset = faceSlots?.get(edge) ?? (
+      (face === "top" || face === "bottom") ? rect.w / 2 : rect.h / 2
+    );
+
+    switch (face) {
+      case "top": return { x: rect.x + offset, y: rect.y };
+      case "bottom": return { x: rect.x + offset, y: rect.y + rect.h };
+      case "left": return { x: rect.x, y: rect.y + offset };
+      case "right": return { x: rect.x + rect.w, y: rect.y + offset };
+    }
+  }
+
+  // Route paths
+  const paths: EdgePath[] = [];
+
+  // Collect all root box rects for channel allocation
+  const rootRects: Rect[] = [];
+  for (const rb of allRootBoxes) {
+    rootRects.push(elRect(rb, hRect, scrollLeft, scrollTop));
+  }
+
+  // Channel allocator: tracks used channel positions to avoid overlap
+  const usedChannelX = new Set<number>();
+  const usedChannelY = new Set<number>();
+
+  function allocateChannelX(preferredX: number): number {
+    let x = Math.round(preferredX);
+    while (usedChannelX.has(x)) x += CHANNEL_SPACING;
+    usedChannelX.add(x);
+    return x;
+  }
+
+  function allocateChannelY(preferredY: number): number {
+    let y = Math.round(preferredY);
+    while (usedChannelY.has(y)) y += CHANNEL_SPACING;
+    usedChannelY.add(y);
+    return y;
+  }
+
+  for (let i = 0; i < edges.length; i++) {
+    const edge = edges[i];
+    const rowDelta = Math.abs(edge.srcPartition - edge.tgtPartition);
+    const srcAbove = edge.srcPartition < edge.tgtPartition;
+
+    if (rowDelta === 1) {
+      // Single-row hop: bottom of upper → top of lower
+      const srcFace: Face = srcAbove ? "bottom" : "top";
+      const tgtFace: Face = srcAbove ? "top" : "bottom";
+
+      const start = getAnchor(edge.srcEl, srcFace, edge);
+      const end = getAnchor(edge.tgtEl, tgtFace, edge);
+
+      if (Math.abs(start.x - end.x) < 1) {
+        paths.push({ pts: [start, end], targetUuid: edge.targetUuid, id: "edge_" + i });
+      } else {
+        const midY = allocateChannelY(Math.round((start.y + end.y) / 2));
+        paths.push({
+          pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
+          targetUuid: edge.targetUuid,
+          id: "edge_" + i,
+        });
+      }
+    } else {
+      // Same-row or multi-row: side faces, use root box x-centers for side
+      const srcRootRect = elRect(edge.srcRoot, hRect, scrollLeft, scrollTop);
+      const tgtRootRect = elRect(edge.tgtRoot, hRect, scrollLeft, scrollTop);
+      const srcRootCx = srcRootRect.x + srcRootRect.w / 2;
+      const tgtRootCx = tgtRootRect.x + tgtRootRect.w / 2;
+
+      let side: "left" | "right";
+      if (tgtRootCx < srcRootCx) side = "left";
+      else if (tgtRootCx > srcRootCx) side = "right";
+      else {
+        const srcFaces = faceEdges.get(edge.srcEl);
+        side = (srcFaces && srcFaces.left.length <= srcFaces.right.length) ? "left" : "right";
       }
 
-      const allPts = [...srcPath, ...midPath, ...tgtPath];
-      const clean = [allPts[0]];
-      for (let i = 1; i < allPts.length; i++) {
-        const prev = clean[clean.length - 1];
-        if (Math.abs(prev.x - allPts[i].x) > 0.5 || Math.abs(prev.y - allPts[i].y) > 0.5) {
-          clean.push(allPts[i]);
+      const start = getAnchor(edge.srcEl, side, edge);
+      const end = getAnchor(edge.tgtEl, side, edge);
+
+      if (rowDelta === 0) {
+        // Same-row: route below the row
+        const maxBottom = Math.max(srcRootRect.y + srcRootRect.h, tgtRootRect.y + tgtRootRect.h);
+        const channelY = allocateChannelY(maxBottom + 20);
+        paths.push({
+          pts: [start, { x: start.x, y: channelY }, { x: end.x, y: channelY }, end],
+          targetUuid: edge.targetUuid,
+          id: "edge_" + i,
+        });
+      } else {
+        // Multi-row: route through vertical channel outside all root boxes
+        let channelX: number;
+        if (side === "left") {
+          const minX = Math.min(...rootRects.map(r => r.x));
+          channelX = allocateChannelX(minX - 20);
+        } else {
+          const maxX = Math.max(...rootRects.map(r => r.x + r.w));
+          channelX = allocateChannelX(maxX + 20);
         }
+        paths.push({
+          pts: [start, { x: channelX, y: start.y }, { x: channelX, y: end.y }, end],
+          targetUuid: edge.targetUuid,
+          id: "edge_" + i,
+        });
       }
-
-      paths.push({ pts: clean, targetUuid: info.targetUuid, id: ee.id });
     }
+  }
 
-    for (const se of sameEdges) {
-      const midX = Math.max(se.refRect.x + se.refRect.w, se.tgtRect.x + se.tgtRect.w) + 20;
-      const srcEdge = boxEdgePoint(se.refRect, { x: midX, y: se.refRect.y + se.refRect.h / 2 });
-      const tgtEdge = boxEdgePoint(se.tgtRect, { x: midX, y: se.tgtRect.y + se.tgtRect.h / 2 });
-      paths.push({
-        pts: [srcEdge, { x: midX, y: srcEdge.y }, { x: midX, y: tgtEdge.y }, tgtEdge],
-        targetUuid: se.targetUuid,
-        id: "same_" + paths.length,
-      });
-    }
-
-    drawPaths(paths);
-  }).catch(() => {
-    const paths: EdgePath[] = [];
-    for (const info of edgeInfos) {
-      const midX = Math.max(info.refRect.x + info.refRect.w, info.tgtRect.x + info.tgtRect.w) + 20;
-      const srcEdge = boxEdgePoint(info.refRect, { x: midX, y: info.refRect.y + info.refRect.h / 2 });
-      const tgtEdge = boxEdgePoint(info.tgtRect, { x: midX, y: info.tgtRect.y + info.tgtRect.h / 2 });
-      paths.push({
-        pts: [srcEdge, { x: midX, y: srcEdge.y }, { x: midX, y: tgtEdge.y }, tgtEdge],
-        targetUuid: info.targetUuid,
-        id: "fb_" + paths.length,
-      });
-    }
-    drawPaths(paths);
-  });
+  drawPaths(paths);
 }
+
+// ── SVG rendering ───────────────────────────────────────────────
 
 function drawPaths(paths: EdgePath[]): void {
   clearEdgeSvg();
@@ -337,8 +755,8 @@ function drawPaths(paths: EdgePath[]): void {
     const path = document.createElementNS(svgNs, "path");
     path.setAttribute("d", d);
     path.setAttribute("marker-end", "url(#arrowhead)");
-    (path as SVGElement & { dataset: DOMStringMap }).dataset.edgeId = p.id;
-    (path as SVGElement & { dataset: DOMStringMap }).dataset.targetUuid = p.targetUuid;
+    path.setAttribute("data-edge-id", p.id);
+    path.setAttribute("data-target-uuid", p.targetUuid);
     svg.appendChild(path);
   }
 
@@ -354,7 +772,7 @@ export function highlightEdges(targetUuid: string): void {
   const svg = document.getElementById("edge-svg");
   if (!svg) return;
   for (const path of svg.querySelectorAll("path[data-target-uuid]")) {
-    if ((path as HTMLElement).dataset.targetUuid === targetUuid) {
+    if (path.getAttribute("data-target-uuid") === targetUuid) {
       path.classList.add("edge-highlight");
     }
   }

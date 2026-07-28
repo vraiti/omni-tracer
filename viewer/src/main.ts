@@ -1,9 +1,10 @@
 import "./style.css";
 import { initTooltip } from "./tooltip";
 import { initEdges, scheduleEdgeLayout } from "./edges";
-import { initRender, render } from "./render";
-import { initPanels } from "./panels";
+import { initRender, render, buildAndRender } from "./render";
+import { initPanels, updateExcludeBtn, updatePinRootBtn, updateEntrypointBtn } from "./panels";
 import { initLoader, loadFile, loadFromUrl } from "./loader";
+import { getLastTrace, resetConfig } from "./state";
 
 initTooltip();
 initEdges();
@@ -29,6 +30,14 @@ dropZone.addEventListener("drop", e => {
 fileInputDrop.addEventListener("change", () => { if (fileInputDrop.files?.length) loadFile(fileInputDrop.files[0]); });
 fileInput.addEventListener("change", () => { if (fileInput.files?.length) loadFile(fileInput.files[0]); });
 
+document.getElementById("reset-layout-btn")!.addEventListener("click", () => {
+  resetConfig();
+  updateExcludeBtn();
+  updatePinRootBtn();
+  updateEntrypointBtn();
+  buildAndRender();
+});
+
 let filterTimeout: ReturnType<typeof setTimeout> | null = null;
 filterInput.addEventListener("input", () => {
   if (filterTimeout !== null) clearTimeout(filterTimeout);
@@ -39,6 +48,7 @@ showIsolated.addEventListener("change", render);
 window.addEventListener("resize", scheduleEdgeLayout);
 window.addEventListener("scroll", scheduleEdgeLayout, true);
 
-if (window.location.pathname !== "/" && window.location.pathname !== "/index.html") {
-  loadFromUrl(window.location.pathname);
+const traceParam = new URLSearchParams(window.location.search).get("trace") || getLastTrace();
+if (traceParam) {
+  loadFromUrl("/" + traceParam);
 }

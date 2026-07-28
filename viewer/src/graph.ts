@@ -1,6 +1,8 @@
 import type { TraceData, TraceObject, ParentMap, CreationOrder, EffectiveParentMap } from "./types";
 import { pinnedRootClasses, traceData as stateTraceData } from "./state";
 
+// Refs with "/" are file paths like "/path/to/file.py:ClassName" — extract the class after the last ":".
+// Refs without "/" are bare names (no file path) — return as-is.
 export function getClassName(ref: string): string {
   if (ref.includes("/")) {
     const parts = ref.split(":");
