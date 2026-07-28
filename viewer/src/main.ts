@@ -4,6 +4,7 @@ import { initEdges } from "./edges";
 import { initRender, render, buildAndRender } from "./render";
 import { initPanels, updateExcludeBtn, updatePinRootBtn, updateEntrypointBtn } from "./panels";
 import { initLoader, loadFile, loadFromUrl } from "./loader";
+import { initContextMenu } from "./context-menu";
 import { getLastTrace, resetConfig } from "./state";
 
 initTooltip();
@@ -11,6 +12,7 @@ initEdges();
 initRender();
 initPanels();
 initLoader();
+initContextMenu();
 
 const dropZone = document.getElementById("drop-zone")!;
 const fileInputDrop = document.getElementById("file-input-drop") as HTMLInputElement;
