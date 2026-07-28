@@ -1097,14 +1097,40 @@ function drawPaths(paths: EdgePath[]): void {
       const elA = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuidA}"]`) as HTMLElement | null;
       const elB = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuidB}"]`) as HTMLElement | null;
       if (!elA || !elB) continue;
-      const rA = elA.getBoundingClientRect();
-      const rB = elB.getBoundingClientRect();
-      const ax = rA.left - hRect.left + scrollLeft + rA.width / 2;
-      const ay = rA.top - hRect.top + scrollTop + rA.height / 2;
-      const bx = rB.left - hRect.left + scrollLeft + rB.width / 2;
-      const by = rB.top - hRect.top + scrollTop + rB.height / 2;
+      const rA = elRect(elA, hRect, scrollLeft, scrollTop);
+      const rB = elRect(elB, hRect, scrollLeft, scrollTop);
+      const cxA = rA.x + rA.w / 2;
+      const cyA = rA.y + rA.h / 2;
+      const cxB = rB.x + rB.w / 2;
+      const cyB = rB.y + rB.h / 2;
+
+      const dx = Math.abs(cxA - cxB);
+      const dy = Math.abs(cyA - cyB);
+      const pts: Point[] = [];
+
+      if (dy >= dx) {
+        const aAbove = cyA < cyB;
+        const startY = aAbove ? rA.y + rA.h : rA.y;
+        const endY = aAbove ? rB.y : rB.y + rB.h;
+        const midY = (startY + endY) / 2;
+        pts.push({ x: cxA, y: startY });
+        pts.push({ x: cxA, y: midY });
+        pts.push({ x: cxB, y: midY });
+        pts.push({ x: cxB, y: endY });
+      } else {
+        const aLeft = cxA < cxB;
+        const startX = aLeft ? rA.x + rA.w : rA.x;
+        const endX = aLeft ? rB.x : rB.x + rB.w;
+        const midX = (startX + endX) / 2;
+        pts.push({ x: startX, y: cyA });
+        pts.push({ x: midX, y: cyA });
+        pts.push({ x: midX, y: cyB });
+        pts.push({ x: endX, y: cyB });
+      }
+
+      const d = "M" + pts.map(pt => pt.x + "," + pt.y).join(" L");
       const path = document.createElementNS(svgNs, "path");
-      path.setAttribute("d", `M${ax},${ay} L${bx},${by}`);
+      path.setAttribute("d", d);
       path.classList.add("cross-process-edge");
       path.setAttribute("data-target-uuid", uuidA);
       svg.appendChild(path);
