@@ -7,7 +7,7 @@ let hierarchyEl: HTMLElement;
 
 const NODE_GAP = 24;
 const ROW_GAP = 48;
-const CHANNEL_SPACING = 10;
+const CHANNEL_SPACING = 16;
 
 export function initEdges(): void {
   hierarchyEl = document.getElementById("hierarchy")!;
