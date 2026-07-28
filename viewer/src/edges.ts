@@ -614,6 +614,12 @@ function drawEdges(): void {
   // Route paths
   const paths: EdgePath[] = [];
 
+  // Collect root box rects for obstacle avoidance
+  const rootRects = new Map<HTMLElement, Rect>();
+  for (const rb of allRootBoxes) {
+    rootRects.set(rb, elRect(rb, hRect, scrollLeft, scrollTop));
+  }
+
   // Channel allocator: tracks used channel positions to avoid overlap
   const usedChannelY = new Set<number>();
 
@@ -633,15 +639,62 @@ function drawEdges(): void {
     const start = getAnchor(edge.srcEl, srcFace, edge);
     const end = getAnchor(edge.tgtEl, tgtFace, edge);
 
-    if (Math.abs(start.x - end.x) < 1) {
+    const srcRootRect = rootRects.get(edge.srcRoot)!;
+    const tgtRootRect = rootRects.get(edge.tgtRoot)!;
+
+    // Straight vertical from child to root face
+    const srcRootFaceY = srcFace === "top" ? srcRootRect.y : srcRootRect.y + srcRootRect.h;
+    const tgtRootFaceY = tgtFace === "top" ? tgtRootRect.y : tgtRootRect.y + tgtRootRect.h;
+
+    if (Math.abs(start.x - end.x) < 1 && Math.abs(srcRootFaceY - tgtRootFaceY) < 1) {
       paths.push({ pts: [start, end], targetUuid: edge.targetUuid, id: "edge_" + i });
     } else {
-      const midY = allocateChannelY(Math.round((start.y + end.y) / 2));
-      paths.push({
-        pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
-        targetUuid: edge.targetUuid,
-        id: "edge_" + i,
-      });
+      // Route: child → root face (vertical) → horizontal channel → root face (vertical) → child
+      const midY = allocateChannelY(Math.round((srcRootFaceY + tgtRootFaceY) / 2));
+
+      // Check if horizontal segment crosses any uninvolved roots
+      const minX = Math.min(start.x, end.x);
+      const maxX = Math.max(start.x, end.x);
+      let needsDetour = false;
+      for (const [rb, rect] of rootRects) {
+        if (rb === edge.srcRoot || rb === edge.tgtRoot) continue;
+        if (rect.x + rect.w > minX && rect.x < maxX &&
+            rect.y < midY && rect.y + rect.h > midY) {
+          needsDetour = true;
+          break;
+        }
+      }
+
+      if (!needsDetour) {
+        const pts: Point[] = [start];
+        if (Math.abs(start.y - srcRootFaceY) > 1) pts.push({ x: start.x, y: srcRootFaceY });
+        if (Math.abs(srcRootFaceY - midY) > 1) pts.push({ x: start.x, y: midY });
+        if (Math.abs(start.x - end.x) > 1) pts.push({ x: end.x, y: midY });
+        if (Math.abs(tgtRootFaceY - midY) > 1) pts.push({ x: end.x, y: tgtRootFaceY });
+        if (Math.abs(end.y - tgtRootFaceY) > 1) pts.push(end);
+        else if (pts[pts.length - 1].x !== end.x || pts[pts.length - 1].y !== end.y) pts.push(end);
+        paths.push({ pts, targetUuid: edge.targetUuid, id: "edge_" + i });
+      } else {
+        // Route around: go outside all roots on whichever side is shorter
+        const allLeft = Math.min(...Array.from(rootRects.values()).map(r => r.x));
+        const allRight = Math.max(...Array.from(rootRects.values()).map(r => r.x + r.w));
+        const distLeft = start.x - allLeft + end.x - allLeft;
+        const distRight = allRight - start.x + allRight - end.x;
+        const channelX = distLeft < distRight ? allLeft - 20 : allRight + 20;
+
+        paths.push({
+          pts: [
+            start,
+            { x: start.x, y: srcRootFaceY },
+            { x: channelX, y: srcRootFaceY },
+            { x: channelX, y: tgtRootFaceY },
+            { x: end.x, y: tgtRootFaceY },
+            end,
+          ],
+          targetUuid: edge.targetUuid,
+          id: "edge_" + i,
+        });
+      }
     }
   }
 
