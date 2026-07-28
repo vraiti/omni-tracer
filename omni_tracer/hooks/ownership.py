@@ -68,7 +68,7 @@ class OwnershipHook:
             owned_uuid = graph.get_object_uuid(id(value))
             if owned_uuid is not None:
                 graph.record_ownership(id(self_obj), id(value), name)
-            elif isinstance(value, (list, tuple)):
+            elif isinstance(value, (list, tuple, set, frozenset)):
                 for item in value:
                     item_uuid = graph.get_object_uuid(id(item))
                     if item_uuid is not None:
