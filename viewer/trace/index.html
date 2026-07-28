@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>omni-tracer function trace</title>
+</head>
+<body>
+
+<div id="controls">
+  <label id="file-input-label">
+    Open Trace
+    <input type="file" id="file-input" accept=".json">
+  </label>
+  <label>
+    Root:
+    <select id="root-select">
+      <option value="">-- load a trace --</option>
+    </select>
+  </label>
+  <span id="stats"></span>
+</div>
+
+<div id="drop-zone">
+  Drop a trace JSON here, or click to load
+  <input type="file" id="file-input-drop" accept=".json" style="display:none">
+</div>
+
+<div id="trace-container"></div>
+
+<svg id="trace-edge-svg"></svg>
+
+<div id="loading">Parsing trace...</div>
+
+<script type="module" src="/src/trace-main.ts"></script>
+</body>
+</html>

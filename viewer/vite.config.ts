@@ -86,6 +86,12 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        trace: path.resolve(__dirname, "trace/index.html"),
+      },
+    },
   },
   plugins: [configSavePlugin()],
 });

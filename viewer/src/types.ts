@@ -15,6 +15,17 @@ export type CreationOrder = Record<string, number>;
 
 export type EffectiveParentMap = Record<string, string[]>;
 
+export interface TraceFunction {
+  ref: string;
+  invokes: string[];
+  instantiates: string[];
+  process: string;
+  bound_to?: string;
+  coroutine?: string;
+}
+
+export type FunctionData = Record<string, TraceFunction>;
+
 export interface Point {
   x: number;
   y: number;
