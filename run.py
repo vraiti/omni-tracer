@@ -4,6 +4,8 @@ import os
 import signal
 import subprocess
 import sys
+import time
+import urllib.request
 
 MODELS = {
     "Tongyi-MAI/Z-Image-Turbo": {
@@ -14,8 +16,31 @@ MODELS = {
     },
 }
 
-POLL_SCRIPT = "vllm-omni-aux/utils/poll-server-health.sh"
-HOST = "localhost:8000"
+HEALTH_URL = "http://localhost:8000/health"
+POLL_INTERVAL = 10
+
+
+def poll_health(pid):
+    start = time.monotonic()
+    while True:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            print(f"Process {pid} is dead", file=sys.stderr)
+            return False
+
+        try:
+            resp = urllib.request.urlopen(HEALTH_URL, timeout=3)
+            if resp.status == 200:
+                elapsed = int(time.monotonic() - start)
+                print(f"Server ready ({elapsed // 60}m {elapsed % 60}s)")
+                return True
+        except Exception:
+            pass
+
+        elapsed = int(time.monotonic() - start)
+        print(f"pid={pid} +{elapsed // 60}m{elapsed % 60:02d}s waiting...")
+        time.sleep(POLL_INTERVAL)
 
 
 def main():
@@ -44,12 +69,7 @@ def main():
     server = subprocess.Popen(cmd)
 
     try:
-        poll = subprocess.run(
-            [POLL_SCRIPT, str(server.pid), HOST],
-            check=False,
-        )
-        if poll.returncode != 0:
-            print("Server failed to become ready", file=sys.stderr)
+        if not poll_health(server.pid):
             server.terminate()
             server.wait()
             sys.exit(1)

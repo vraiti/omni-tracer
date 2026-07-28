@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+viewer/node_modules/
+viewer/dist/

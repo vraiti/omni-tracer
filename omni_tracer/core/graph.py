@@ -63,30 +63,17 @@ class TraceGraph:
         return None
 
     def record_instantiation(
-        self, ref: str, obj_id: int, caller_uuid: str | None = None
+        self, ref: str, obj_id: int, creator_obj_uuid: str | None = None
     ) -> str:
         existing = self._resolve_object_uuid(obj_id)
         if existing is not None:
             with self._lock:
                 self._obj_id_to_uuid[obj_id] = existing
-                if caller_uuid:
-                    parent = self.functions.get(caller_uuid)
-                    if parent:
-                        parent.instantiates.append(existing)
             return existing
-        created_by = None
-        if caller_uuid:
-            caller_fn = self.functions.get(caller_uuid)
-            if caller_fn:
-                created_by = caller_fn.bound_to
-        node = ObjectNode(ref=ref, process=self.process_uuid, uuid=self._next_id(), created_by=created_by)
+        node = ObjectNode(ref=ref, process=self.process_uuid, uuid=self._next_id(), created_by=creator_obj_uuid)
         with self._lock:
             self.objects[node.uuid] = node
             self._obj_id_to_uuid[obj_id] = node.uuid
-            if caller_uuid:
-                parent = self.functions.get(caller_uuid)
-                if parent:
-                    parent.instantiates.append(node.uuid)
         return node.uuid
 
     def record_ownership(self, owner_id: int, owned_id: int, attr_name: str = "") -> bool:

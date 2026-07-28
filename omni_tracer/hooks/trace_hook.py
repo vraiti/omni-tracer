@@ -96,14 +96,24 @@ class TraceHook:
                 class_ref = f"{inspect.getfile(cls)}:{cls.__qualname__}"
             except (TypeError, OSError):
                 class_ref = f"<unknown>:{cls.__qualname__}"
-        caller_uuid = None
-        stack = self.graph._call_stack()
-        if len(stack) >= 2:
-            caller_uuid = stack[-2]
+        creator_obj_uuid = self._find_creator(frame, self_obj)
         self.graph.record_instantiation(
-            class_ref, id(self_obj), caller_uuid
+            class_ref, id(self_obj), creator_obj_uuid=creator_obj_uuid
         )
         self.ownership.patch_class(cls)
+
+    def _find_creator(
+        self, frame: types.FrameType, self_obj: Any,
+    ) -> str | None:
+        f = frame.f_back
+        while f is not None:
+            caller_self = f.f_locals.get("self")
+            if caller_self is not None and caller_self is not self_obj:
+                uuid = self.graph.get_object_uuid(id(caller_self))
+                if uuid is not None:
+                    return uuid
+            f = f.f_back
+        return None
 
     def _local_trace(
         self, frame: types.FrameType, event: str, arg: Any
