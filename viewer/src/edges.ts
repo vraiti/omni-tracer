@@ -643,22 +643,26 @@ function drawEdges(): void {
     return 0;
   }
 
-  // Channel allocator: parallel segments maintain margin
-  const usedChannelY = new Set<number>();
-  const usedChannelX = new Set<number>();
+  // Channel allocator: parallel segments maintain margin only when Y/X ranges overlap
+  const usedChannelY: { y: number; xMin: number; xMax: number }[] = [];
+  const usedChannelX: { x: number; yMin: number; yMax: number }[] = [];
   const ROOT_MARGIN = 20;
 
-  function allocateChannelY(preferredY: number): number {
+  function allocateChannelY(preferredY: number, xMin: number, xMax: number): number {
     let y = Math.round(preferredY);
-    while (usedChannelY.has(y)) y += CHANNEL_SPACING;
-    usedChannelY.add(y);
+    const lo = Math.min(xMin, xMax);
+    const hi = Math.max(xMin, xMax);
+    while (usedChannelY.some(c => c.y === y && c.xMax > lo && c.xMin < hi)) y += CHANNEL_SPACING;
+    usedChannelY.push({ y, xMin: lo, xMax: hi });
     return y;
   }
 
-  function allocateChannelX(preferredX: number): number {
+  function allocateChannelX(preferredX: number, yMin: number, yMax: number): number {
     let x = Math.round(preferredX);
-    while (usedChannelX.has(x)) x += CHANNEL_SPACING;
-    usedChannelX.add(x);
+    const lo = Math.min(yMin, yMax);
+    const hi = Math.max(yMin, yMax);
+    while (usedChannelX.some(c => c.x === x && c.yMax > lo && c.yMin < hi)) x += CHANNEL_SPACING;
+    usedChannelX.push({ x, yMin: lo, yMax: hi });
     return x;
   }
 
@@ -685,7 +689,7 @@ function drawEdges(): void {
 
     if (rowDelta <= 1) {
       // Single-row hop: at most 2 bends
-      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition));
+      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x);
       paths.push({
         pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
         targetUuid: edge.targetUuid,
@@ -693,8 +697,7 @@ function drawEdges(): void {
       });
     } else {
       // Multi-row: at most 4 bends (child → root face → horizontal → root face → child)
-      // Horizontal segment at gap center between adjacent rows
-      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition));
+      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x);
 
       // Check if horizontal segment crosses any uninvolved roots
       const minX = Math.min(start.x, end.x);
@@ -729,7 +732,8 @@ function drawEdges(): void {
         const distLeft = start.x - allLeft + end.x - allLeft;
         const distRight = allRight - start.x + allRight - end.x;
         const channelX = allocateChannelX(
-          distLeft < distRight ? allLeft - ROOT_MARGIN : allRight + ROOT_MARGIN
+          distLeft < distRight ? allLeft - ROOT_MARGIN : allRight + ROOT_MARGIN,
+          srcRootFaceY, tgtRootFaceY
         );
 
         paths.push({
