@@ -528,7 +528,8 @@ function drawEdges(): void {
 
     const srcId = rootElToId.get(srcRoot) || "";
     const tgtId = rootElToId.get(tgtRoot) || "";
-    const key = (refEl as HTMLElement).dataset.uuid + ">" + targetUuid;
+    const parentUuid = (refEl as HTMLElement).closest(".obj-box")?.getAttribute("data-uuid") || "";
+    const key = parentUuid + ">" + targetUuid;
     if (seen.has(key)) continue;
     seen.add(key);
 
