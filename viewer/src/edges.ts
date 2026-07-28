@@ -596,8 +596,10 @@ function drawEdges(): void {
         else inbound.push(edge);
       }
 
+      const usedOffsets: number[] = [];
       for (const edge of outbound) {
         map.set(edge, center);
+        usedOffsets.push(center);
       }
 
       // Sort inbound by opposite endpoint's absolute X
@@ -609,7 +611,6 @@ function drawEdges(): void {
         });
       }
 
-      const usedOffsets: number[] = [];
       for (const edge of inbound) {
         let offset = center;
         while (usedOffsets.some(u => Math.abs(u - offset) < ARROW_MARGIN)) {
