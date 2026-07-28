@@ -444,8 +444,8 @@ function sortLevel(
       for (const { el } of items) row.appendChild(el);
       childrenDiv.appendChild(row);
     };
-    for (const { el } of sideUp) childrenDiv.appendChild(el);
     makeRow(up, "out-up");
+    for (const { el } of sideUp) childrenDiv.appendChild(el);
     makeRow(mid, "internal");
     for (const { el } of sideMid) childrenDiv.appendChild(el);
     makeRow(down, "out-down");
