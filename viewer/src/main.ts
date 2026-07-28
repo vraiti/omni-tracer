@@ -1,6 +1,6 @@
 import "./style.css";
 import { initTooltip } from "./tooltip";
-import { initEdges, scheduleEdgeLayout } from "./edges";
+import { initEdges } from "./edges";
 import { initRender, render, buildAndRender } from "./render";
 import { initPanels, updateExcludeBtn, updatePinRootBtn, updateEntrypointBtn } from "./panels";
 import { initLoader, loadFile, loadFromUrl } from "./loader";
@@ -45,8 +45,6 @@ filterInput.addEventListener("input", () => {
 });
 showIsolated.addEventListener("change", render);
 
-window.addEventListener("resize", scheduleEdgeLayout);
-window.addEventListener("scroll", scheduleEdgeLayout, true);
 
 const traceParam = new URLSearchParams(window.location.search).get("trace");
 if (traceParam) {
