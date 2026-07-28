@@ -33,6 +33,7 @@ def _traced_server(
     output_file: str,
     tracked_classes: list[str] | None = None,
     capture_specs_raw: list[dict] | None = None,
+    capture_only: bool = False,
 ) -> None:
     from omni_tracer.core.graph import TraceGraph
     from omni_tracer.core.serializer import serialize
@@ -48,9 +49,9 @@ def _traced_server(
     path_filter = PathFilter()
     for cls_name in (tracked_classes or []):
         path_filter.track_class(cls_name)
-    trace_hook = TraceHook(graph, path_filter, capture_specs=capture_specs)
+    trace_hook = TraceHook(graph, path_filter, capture_specs=capture_specs, capture_only=capture_only)
     thread_hook = ThreadHook(trace_hook._global_trace)
-    process_hook = ProcessHook(output_dir, tracked_classes, capture_specs_raw=capture_specs_raw)
+    process_hook = ProcessHook(output_dir, tracked_classes, capture_specs_raw=capture_specs_raw, capture_only=capture_only)
 
     _written = False
 
@@ -98,7 +99,7 @@ def main() -> None:
 
     proc = multiprocessing.Process(
         target=_traced_server,
-        args=(passthrough, args.output, tracked, capture_specs_raw),
+        args=(passthrough, args.output, tracked, capture_specs_raw, args.capture_only),
     )
     proc.start()
     proc.join()

@@ -19,10 +19,12 @@ class ProcessHook:
         output_dir: str,
         tracked_classes: list[str] | None = None,
         capture_specs_raw: list[dict] | None = None,
+        capture_only: bool = False,
     ) -> None:
         self.output_dir = output_dir
         self.tracked_classes = tracked_classes or []
         self.capture_specs_raw = capture_specs_raw or []
+        self.capture_only = capture_only
         os.makedirs(output_dir, exist_ok=True)
 
     def install(self) -> None:
@@ -42,6 +44,7 @@ class ProcessHook:
                 wrapped = _TracedTarget(
                     target, hook.output_dir, hook.tracked_classes,
                     capture_specs_raw=hook.capture_specs_raw,
+                    capture_only=hook.capture_only,
                 )
                 _original_process_init(
                     proc_self,
@@ -76,11 +79,13 @@ class _TracedTarget:
         output_dir: str,
         tracked_classes: list[str] | None = None,
         capture_specs_raw: list[dict] | None = None,
+        capture_only: bool = False,
     ) -> None:
         self.original_target = original_target
         self.output_dir = output_dir
         self.tracked_classes = tracked_classes or []
         self.capture_specs_raw = capture_specs_raw or []
+        self.capture_only = capture_only
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         from omni_tracer.core.graph import TraceGraph
@@ -94,7 +99,7 @@ class _TracedTarget:
         for cls_name in self.tracked_classes:
             path_filter.track_class(cls_name)
         capture_specs = [ArgCaptureSpec(func_pattern=s["func_pattern"], paths=s["paths"]) for s in self.capture_specs_raw]
-        trace_hook = TraceHook(local_graph, path_filter, capture_specs=capture_specs)
+        trace_hook = TraceHook(local_graph, path_filter, capture_specs=capture_specs, capture_only=self.capture_only)
 
         def _write_trace():
             trace_hook.uninstall()

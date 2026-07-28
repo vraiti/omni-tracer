@@ -36,6 +36,12 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
             "'func_pattern:arg.extractor_attr'. May be repeated."
         ),
     )
+    parser.add_argument(
+        "--capture-only",
+        action="store_true",
+        default=False,
+        help="Only record function calls that match --capture-args (reduces memory).",
+    )
     try:
         sep = sys.argv.index("--")
         tracer_args = sys.argv[1:sep]

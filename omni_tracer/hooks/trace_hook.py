@@ -19,12 +19,14 @@ class TraceHook:
         graph: TraceGraph,
         path_filter: PathFilter,
         capture_specs: list[ArgCaptureSpec] | None = None,
+        capture_only: bool = False,
     ) -> None:
         self.graph = graph
         self.path_filter = path_filter
         self.ownership = OwnershipHook(graph, path_filter)
         self.enabled = True
         self._capture_specs = capture_specs or []
+        self._capture_only = capture_only
 
     def install(self) -> None:
         self.ownership.install_module_hook()
@@ -63,6 +65,15 @@ class TraceHook:
                     self._handle_init(frame, code, self_obj)
             return None
 
+        captured_args = self._extract_args(frame, code) if self._capture_specs else None
+
+        if self._capture_only and captured_args is None:
+            if code.co_name == "__init__":
+                self_obj = frame.f_locals.get("self")
+                if self_obj is not None and self.path_filter.is_tracked_class(type(self_obj)):
+                    self._handle_init(frame, code, self_obj)
+            return None
+
         ref = self._make_ref(code)
 
         coroutine_uuid = None
@@ -73,8 +84,6 @@ class TraceHook:
         self_obj = frame.f_locals.get("self")
         if self_obj is not None:
             bound_to = self.graph.get_object_uuid(id(self_obj))
-
-        captured_args = self._extract_args(frame, code) if self._capture_specs else None
 
         func_uuid = self.graph.record_call(
             ref,
