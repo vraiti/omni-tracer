@@ -140,8 +140,25 @@ body {
   align-items: start;
 }
 
-.obj-children [data-hdir="left"] { margin-right: auto; }
-.obj-children [data-hdir="right"] { margin-left: auto; }
+.mid-layout {
+  display: flex;
+  gap: 4px;
+  align-items: start;
+}
+
+.mid-layout > .leaf-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mid-layout > .branch-col {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  align-items: start;
+}
 
 .obj-ref {
   border: 1px dashed #555;

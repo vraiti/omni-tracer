@@ -287,16 +287,14 @@ function barycenterSort(
 
 // ── Child rearrangement ─────────────────────────────────────────
 
-type RefDir = "up" | "down" | "none" | "mixed";
+type AnchorFace = "top" | "bottom";
 
 interface IncomingRef {
   srcPart: number;
-  srcXCenter: number;
 }
 
 interface RootMaps {
   yByUuid: Record<string, number>;
-  xByUuid: Record<string, number>;
   partByUuid: Record<string, number>;
   incomingByUuid: Record<string, IncomingRef[]>;
 }
@@ -306,32 +304,26 @@ function rearrangeChildren(): void {
     ":scope > .process-box > .process-children > .obj-box"
   ) as NodeListOf<HTMLElement>;
 
-  const maps: RootMaps = { yByUuid: {}, xByUuid: {}, partByUuid: {}, incomingByUuid: {} };
+  const maps: RootMaps = { yByUuid: {}, partByUuid: {}, incomingByUuid: {} };
   for (const rb of rootBoxes) {
     const y = rb.offsetTop;
-    const xCenter = rb.offsetLeft + rb.offsetWidth / 2;
     const part = parseInt(rb.dataset.row || "0", 10);
     const uuid = rb.dataset.uuid;
     if (uuid) {
       maps.yByUuid[uuid] = y;
-      maps.xByUuid[uuid] = xCenter;
       maps.partByUuid[uuid] = part;
     }
     for (const inner of rb.querySelectorAll(".obj-box[data-uuid]") as NodeListOf<HTMLElement>) {
       if (inner.dataset.uuid) {
         maps.yByUuid[inner.dataset.uuid] = y;
-        maps.xByUuid[inner.dataset.uuid] = xCenter;
         maps.partByUuid[inner.dataset.uuid] = part;
       }
     }
   }
 
-  const rootElToInfo = new Map<HTMLElement, { part: number; xCenter: number }>();
+  const rootElToInfo = new Map<HTMLElement, { part: number }>();
   for (const rb of rootBoxes) {
-    rootElToInfo.set(rb, {
-      part: parseInt(rb.dataset.row || "0", 10),
-      xCenter: rb.offsetLeft + rb.offsetWidth / 2,
-    });
+    rootElToInfo.set(rb, { part: parseInt(rb.dataset.row || "0", 10) });
   }
   for (const refEl of hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]") as NodeListOf<HTMLElement>) {
     const tid = refEl.dataset.refTarget;
@@ -343,143 +335,130 @@ function rearrangeChildren(): void {
     if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
     const srcInfo = rootElToInfo.get(srcRoot);
     const tgtInfo = rootElToInfo.get(tgtRoot);
-    if (!srcInfo || !tgtInfo || Math.abs(srcInfo.part - tgtInfo.part) <= 1) continue;
+    if (!srcInfo || !tgtInfo) continue;
     if (!maps.incomingByUuid[tid]) maps.incomingByUuid[tid] = [];
-    maps.incomingByUuid[tid].push({ srcPart: srcInfo.part, srcXCenter: srcInfo.xCenter });
+    maps.incomingByUuid[tid].push({ srcPart: srcInfo.part });
   }
 
   for (const rb of rootBoxes) {
     const srcPart = parseInt(rb.dataset.row || "0", 10);
-    const srcXCenter = rb.offsetLeft + rb.offsetWidth / 2;
-    sortLevel(rb, rb.offsetTop, srcPart, srcXCenter, maps);
+    sortLevel(rb, rb.offsetTop, srcPart, maps, true);
   }
 }
-
-type VDir = "up" | "mid" | "down";
-type HDir = "left" | "center" | "right";
 
 interface ClassifiedChild {
   el: HTMLElement;
-  dir: RefDir;
-  vDir: VDir;
-  hDir: HDir;
+  face: AnchorFace | null;
+  hasChildren: boolean;
 }
 
-interface SortResult { dir: RefDir; hDir: HDir }
-
 function sortLevel(
-  parent: HTMLElement, rootY: number, srcPart: number, srcXCenter: number, maps: RootMaps
-): SortResult {
+  parent: HTMLElement, rootY: number, srcPart: number, maps: RootMaps, isRootLevel: boolean
+): AnchorFace | null {
   const childrenDiv = parent.querySelector(":scope > .obj-children");
-  if (!childrenDiv) return { dir: "none", hDir: "center" };
+  if (!childrenDiv) return null;
 
   const children = Array.from(childrenDiv.children) as HTMLElement[];
   const classified: ClassifiedChild[] = [];
-  let leftCount = 0;
-  let rightCount = 0;
 
   for (const child of children) {
     if (child.classList.contains("obj-ref")) {
-      const info = classifyRef(child, rootY, srcPart, maps);
-      let vDir: VDir = "mid";
-      if (info.dir === "up") vDir = "up";
-      else if (info.dir === "down") vDir = "down";
-
-      let hDir: HDir = "center";
-      if (info.rowDist > 1) {
-        const targetX = info.targetXCenter ?? srcXCenter;
-        if (targetX < srcXCenter) { hDir = "left"; leftCount++; }
-        else if (targetX > srcXCenter) { hDir = "right"; rightCount++; }
-        else if (leftCount <= rightCount) { hDir = "left"; leftCount++; }
-        else { hDir = "right"; rightCount++; }
-      }
-
-      classified.push({ el: child, dir: info.dir, vDir, hDir });
+      const face = classifyRefFace(child, rootY, srcPart, maps);
+      classified.push({ el: child, face, hasChildren: false });
     } else if (child.classList.contains("obj-box")) {
-      const result = sortLevel(child, rootY, srcPart, srcXCenter, maps);
-      let vDir: VDir = "mid";
-      if (result.dir === "up") vDir = "up";
-      else if (result.dir === "down") vDir = "down";
-      let hDir = result.hDir;
+      const childFace = sortLevel(child, rootY, srcPart, maps, false);
+      let face = childFace;
       const boxUuid = child.dataset.uuid;
       const incoming = boxUuid ? maps.incomingByUuid[boxUuid] : undefined;
       if (incoming && incoming.length > 0) {
-        if (hDir === "center") {
-          const avgX = incoming.reduce((s, r) => s + r.srcXCenter, 0) / incoming.length;
-          if (srcXCenter > avgX) { hDir = "right"; rightCount++; }
-          else if (srcXCenter < avgX) { hDir = "left"; leftCount++; }
-          else if (leftCount <= rightCount) { hDir = "left"; leftCount++; }
-          else { hDir = "right"; rightCount++; }
+        const aboveCount = incoming.filter(r => r.srcPart < srcPart).length;
+        const belowCount = incoming.filter(r => r.srcPart > srcPart).length;
+        let incomingFace: AnchorFace | null = null;
+        if (aboveCount > 0 && belowCount === 0) incomingFace = "top";
+        else if (belowCount > 0 && aboveCount === 0) incomingFace = "bottom";
+        else if (aboveCount > 0 && belowCount > 0) incomingFace = aboveCount >= belowCount ? "top" : "bottom";
+
+        if (face === null) face = incomingFace;
+        else if (incomingFace !== null && incomingFace !== face) {
+          face = aboveCount >= belowCount ? "top" : "bottom";
         }
       }
-      classified.push({ el: child, dir: result.dir, vDir, hDir });
+      const hasChildren = !!child.querySelector(":scope > .obj-children");
+      classified.push({ el: child, face, hasChildren });
     } else {
-      classified.push({ el: child, dir: "none", vDir: "mid", hDir: "center" });
+      classified.push({ el: child, face: null, hasChildren: false });
     }
   }
 
+  // Store face on elements
+  for (const c of classified) {
+    if (c.face) c.el.dataset.face = c.face;
+    else delete c.el.dataset.face;
+    delete c.el.dataset.hdir;
+  }
+
+  // DOM placement
   childrenDiv.innerHTML = "";
 
+  const topAnchored = classified.filter(c => c.face === "top");
+  const bottomAnchored = classified.filter(c => c.face === "bottom");
+  const unanchored = classified.filter(c => c.face === null);
+
+  const makeRow = (items: ClassifiedChild[], cls: string) => {
+    if (items.length === 0) return;
+    const row = document.createElement("div");
+    row.className = "child-row " + cls;
+    for (const { el } of items) row.appendChild(el);
+    childrenDiv.appendChild(row);
+  };
+
+  makeRow(topAnchored, "anchored-top");
+
+  if (isRootLevel && unanchored.length > 0) {
+    const leaves = unanchored.filter(c => !c.hasChildren);
+    const branches = unanchored.filter(c => c.hasChildren);
+    if (leaves.length > 0 && branches.length > 0) {
+      const mid = document.createElement("div");
+      mid.className = "mid-layout";
+      const leafCol = document.createElement("div");
+      leafCol.className = "leaf-col";
+      for (const { el } of leaves) leafCol.appendChild(el);
+      const branchCol = document.createElement("div");
+      branchCol.className = "branch-col";
+      for (const { el } of branches) branchCol.appendChild(el);
+      mid.appendChild(leafCol);
+      mid.appendChild(branchCol);
+      childrenDiv.appendChild(mid);
+    } else {
+      makeRow(unanchored, "internal");
+    }
+  } else if (unanchored.length > 0) {
+    for (const { el } of unanchored) childrenDiv.appendChild(el);
+  }
+
+  makeRow(bottomAnchored, "anchored-bottom");
+
+  // Propagate: majority vote
+  let topCount = 0;
+  let bottomCount = 0;
   for (const c of classified) {
-    if (c.hDir !== "center") c.el.dataset.hdir = c.hDir;
-    else delete c.el.dataset.hdir;
+    if (c.face === "top") topCount++;
+    else if (c.face === "bottom") bottomCount++;
   }
-
-  const center = classified.filter(c => c.hDir === "center");
-  const sideUp = classified.filter(c => c.hDir !== "center" && c.vDir === "up");
-  const sideMid = classified.filter(c => c.hDir !== "center" && c.vDir === "mid");
-  const sideDown = classified.filter(c => c.hDir !== "center" && c.vDir === "down");
-
-  const up = center.filter(c => c.vDir === "up");
-  const mid = center.filter(c => c.vDir === "mid");
-  const down = center.filter(c => c.vDir === "down");
-
-  const hasRows = up.length > 0 || down.length > 0 || sideUp.length > 0 || sideDown.length > 0;
-
-  if (hasRows) {
-    const makeRow = (items: ClassifiedChild[], cls: string) => {
-      if (items.length === 0) return;
-      const row = document.createElement("div");
-      row.className = "child-row " + cls;
-      for (const { el } of items) row.appendChild(el);
-      childrenDiv.appendChild(row);
-    };
-    makeRow(up, "out-up");
-    for (const { el } of sideUp) childrenDiv.appendChild(el);
-    makeRow(mid, "internal");
-    for (const { el } of sideMid) childrenDiv.appendChild(el);
-    makeRow(down, "out-down");
-    for (const { el } of sideDown) childrenDiv.appendChild(el);
-  } else {
-    for (const { el } of classified) childrenDiv.appendChild(el);
-  }
-
-  const dirs = new Set(classified.map(c => c.dir));
-  dirs.delete("none");
-  const dir: RefDir = dirs.size === 0 ? "none" : dirs.size === 1 ? dirs.values().next().value as RefDir : "mixed";
-
-  const sideChildren = classified.filter(c => c.hDir !== "center");
-  let dominantH: HDir = "center";
-  if (sideChildren.length > 0) {
-    const leftN = sideChildren.filter(c => c.hDir === "left").length;
-    const rightN = sideChildren.filter(c => c.hDir === "right").length;
-    dominantH = rightN >= leftN ? "right" : "left";
-  }
-
-  return { dir, hDir: dominantH };
+  if (topCount === 0 && bottomCount === 0) return null;
+  return topCount >= bottomCount ? "top" : "bottom";
 }
 
-function classifyRef(
+function classifyRefFace(
   ref: HTMLElement, rootY: number, srcPart: number, maps: RootMaps
-): { dir: RefDir; rowDist: number; targetXCenter: number | null } {
+): AnchorFace | null {
   const tid = ref.dataset.refTarget;
-  if (!tid) return { dir: "none", rowDist: 0, targetXCenter: null };
+  if (!tid) return null;
   const ty = maps.yByUuid[tid];
-  if (ty === undefined || ty === rootY) return { dir: "none", rowDist: 0, targetXCenter: null };
+  if (ty === undefined || ty === rootY) return null;
   const tgtPart = maps.partByUuid[tid] ?? srcPart;
-  const rowDist = Math.abs(tgtPart - srcPart);
-  const targetXCenter = maps.xByUuid[tid] ?? null;
-  return { dir: ty < rootY ? "up" : "down", rowDist, targetXCenter };
+  if (tgtPart === srcPart) return null;
+  return tgtPart < srcPart ? "top" : "bottom";
 }
 
 // ── Container sizing ────────────────────────────────────────────
@@ -576,39 +555,19 @@ function drawEdges(): void {
     return faceEdges.get(el)!;
   }
 
-  for (const edge of edges) {
-    const rowDelta = Math.abs(edge.srcPartition - edge.tgtPartition);
+  function resolveEdgeFace(el: Element, isSource: boolean, edge: RoutedEdge): Face {
+    const dataFace = (el as HTMLElement).dataset.face;
+    if (dataFace === "top" || dataFace === "bottom") return dataFace;
     const srcAbove = edge.srcPartition < edge.tgtPartition;
+    if (isSource) return srcAbove ? "bottom" : "top";
+    return srcAbove ? "top" : "bottom";
+  }
 
-    if (rowDelta === 1) {
-      // Single-row hop: top/bottom faces
-      if (srcAbove) {
-        getFace(edge.srcEl).bottom.push(edge);
-        getFace(edge.tgtEl).top.push(edge);
-      } else {
-        getFace(edge.srcEl).top.push(edge);
-        getFace(edge.tgtEl).bottom.push(edge);
-      }
-    } else {
-      // Same-row or multi-row: side faces based on root box x-centers
-      const srcRootRect = elRect(edge.srcRoot, hRect, scrollLeft, scrollTop);
-      const tgtRootRect = elRect(edge.tgtRoot, hRect, scrollLeft, scrollTop);
-      const srcRootCx = srcRootRect.x + srcRootRect.w / 2;
-      const tgtRootCx = tgtRootRect.x + tgtRootRect.w / 2;
-
-      let side: "left" | "right";
-      if (tgtRootCx < srcRootCx) {
-        side = "left";
-      } else if (tgtRootCx > srcRootCx) {
-        side = "right";
-      } else {
-        const srcFace = getFace(edge.srcEl);
-        side = srcFace.left.length <= srcFace.right.length ? "left" : "right";
-      }
-
-      getFace(edge.srcEl)[side].push(edge);
-      getFace(edge.tgtEl)[side].push(edge);
-    }
+  for (const edge of edges) {
+    const srcFace = resolveEdgeFace(edge.srcEl, true, edge);
+    const tgtFace = resolveEdgeFace(edge.tgtEl, false, edge);
+    getFace(edge.srcEl)[srcFace].push(edge);
+    getFace(edge.tgtEl)[tgtFace].push(edge);
   }
 
   // Compute slot positions for each face of each element
