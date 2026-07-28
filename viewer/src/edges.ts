@@ -62,73 +62,82 @@ type Face = "top" | "bottom" | "left" | "right";
 // ── Node placement ──────────────────────────────────────────────
 
 function layoutNodes(): void {
-  const allRootBoxes = hierarchyEl.querySelectorAll(
-    ":scope > .process-box > .process-children > .obj-box"
-  ) as NodeListOf<HTMLElement>;
-  if (allRootBoxes.length === 0) { clearEdgeSvg(); return; }
+  const processBoxes = hierarchyEl.querySelectorAll(":scope > .process-box") as NodeListOf<HTMLElement>;
+  if (processBoxes.length === 0) { clearEdgeSvg(); return; }
 
-  const entries: RootEntry[] = [];
-  let idx = 0;
-  for (const rb of allRootBoxes) {
-    entries.push({
-      el: rb,
-      id: "rb_" + idx++,
-      partition: parseInt(rb.dataset.row || "0", 10),
-      ref: rb.dataset.ref || "",
-      x: 0, y: 0,
-      w: rb.offsetWidth,
-      h: rb.offsetHeight,
-    });
-  }
+  const allProcessEntries: {
+    entries: RootEntry[];
+    partitions: number[];
+    byPartition: Map<number, RootEntry[]>;
+    container: HTMLElement;
+  }[] = [];
 
-  // BFS partition assignment when entrypoints are active
-  if (entrypointClasses.size > 0) {
-    bfsAssignPartitions(entries, allRootBoxes);
-  }
+  let globalIdx = 0;
 
-  // Group by partition
-  const byPartition = new Map<number, RootEntry[]>();
-  for (const e of entries) {
-    if (!byPartition.has(e.partition)) byPartition.set(e.partition, []);
-    byPartition.get(e.partition)!.push(e);
-  }
-  const partitions = Array.from(byPartition.keys()).sort((a, b) => a - b);
+  for (const procBox of processBoxes) {
+    const container = procBox.querySelector(".process-children") as HTMLElement;
+    if (!container) continue;
+    const rootBoxes = container.querySelectorAll(":scope > .obj-box") as NodeListOf<HTMLElement>;
+    if (rootBoxes.length === 0) continue;
 
-  // Collect cross-root edges for barycenter sorting
-  const crossEdges = collectCrossEdges(entries);
+    const entries: RootEntry[] = [];
+    for (const rb of rootBoxes) {
+      entries.push({
+        el: rb,
+        id: "rb_" + globalIdx++,
+        partition: parseInt(rb.dataset.row || "0", 10),
+        ref: rb.dataset.ref || "",
+        x: 0, y: 0,
+        w: rb.offsetWidth,
+        h: rb.offsetHeight,
+      });
+    }
 
-  // Barycenter sort within each row
-  barycenterSort(partitions, byPartition, crossEdges, entries);
+    if (entrypointClasses.size > 0) {
+      bfsAssignPartitions(entries, rootBoxes);
+    }
 
-  // Initial layout pass to trigger child rearrangement
-  placeNodes(partitions, byPartition);
-  for (const e of entries) {
-    e.el.style.left = e.x + "px";
-    e.el.style.top = e.y + "px";
-    e.el.style.visibility = "visible";
-    e.el.dataset.row = String(e.partition);
-  }
-  rearrangeChildren();
+    const byPartition = new Map<number, RootEntry[]>();
+    for (const e of entries) {
+      if (!byPartition.has(e.partition)) byPartition.set(e.partition, []);
+      byPartition.get(e.partition)!.push(e);
+    }
+    const partitions = Array.from(byPartition.keys()).sort((a, b) => a - b);
 
-  // Re-measure after rearrangement (children may have changed box sizes)
-  for (const e of entries) {
-    e.w = e.el.offsetWidth;
-    e.h = e.el.offsetHeight;
-  }
+    const crossEdges = collectCrossEdges(entries);
+    barycenterSort(partitions, byPartition, crossEdges, entries);
 
-  // Final layout pass with correct sizes
-  placeNodes(partitions, byPartition);
-  for (const e of entries) {
-    e.el.style.left = e.x + "px";
-    e.el.style.top = e.y + "px";
+    placeNodes(partitions, byPartition);
+    for (const e of entries) {
+      e.el.style.left = e.x + "px";
+      e.el.style.top = e.y + "px";
+      e.el.style.visibility = "visible";
+      e.el.dataset.row = String(e.partition);
+    }
+    rearrangeChildren(container);
+
+    for (const e of entries) {
+      e.w = e.el.offsetWidth;
+      e.h = e.el.offsetHeight;
+    }
+
+    placeNodes(partitions, byPartition);
+    for (const e of entries) {
+      e.el.style.left = e.x + "px";
+      e.el.style.top = e.y + "px";
+    }
+
+    allProcessEntries.push({ entries, partitions, byPartition, container });
   }
 
   sizeContainers();
 
   const applyPositions = () => {
-    for (const e of entries) {
-      e.el.style.left = e.x + "px";
-      e.el.style.top = e.y + "px";
+    for (const { entries } of allProcessEntries) {
+      for (const e of entries) {
+        e.el.style.left = e.x + "px";
+        e.el.style.top = e.y + "px";
+      }
     }
     sizeContainers();
   };
@@ -136,7 +145,9 @@ function layoutNodes(): void {
   requestAnimationFrame(() => {
     const extraGap = drawEdges();
     if (extraGap.size > 0) {
-      placeNodes(partitions, byPartition, extraGap);
+      for (const { partitions, byPartition } of allProcessEntries) {
+        placeNodes(partitions, byPartition, extraGap);
+      }
       applyPositions();
       requestAnimationFrame(() => drawEdges());
     }
@@ -320,9 +331,9 @@ interface RootMaps {
   incomingByUuid: Record<string, IncomingRef[]>;
 }
 
-function rearrangeChildren(): void {
-  const rootBoxes = hierarchyEl.querySelectorAll(
-    ":scope > .process-box > .process-children > .obj-box"
+function rearrangeChildren(container: HTMLElement): void {
+  const rootBoxes = container.querySelectorAll(
+    ":scope > .obj-box"
   ) as NodeListOf<HTMLElement>;
 
   const maps: RootMaps = { yByUuid: {}, partByUuid: {}, incomingByUuid: {} };
