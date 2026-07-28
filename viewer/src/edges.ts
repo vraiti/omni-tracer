@@ -571,8 +571,11 @@ function drawEdges(): void {
   }
 
   // Compute slot positions for each face of each element
+  // Outbound: centered on the element. Inbound: centered, then shifted
+  // right with 1.5x arrow margin (12px) until no two overlap.
   type SlotMap = Map<Element, Map<Face, Map<RoutedEdge, number>>>;
   const slotPositions: SlotMap = new Map();
+  const ARROW_MARGIN = 12;
 
   for (const [el, faces] of faceEdges) {
     const rect = elRect(el, hRect, scrollLeft, scrollTop);
@@ -582,34 +585,41 @@ function drawEdges(): void {
       const edgeList = faces[face];
       if (edgeList.length === 0) continue;
 
-      // Sort by opposite endpoint's absolute X to minimize crossings at this face
+      const length = (face === "top" || face === "bottom") ? rect.w : rect.h;
+      const map = new Map<RoutedEdge, number>();
+      const center = length / 2;
+
+      const outbound: RoutedEdge[] = [];
+      const inbound: RoutedEdge[] = [];
+      for (const edge of edgeList) {
+        if (edge.srcEl === el) outbound.push(edge);
+        else inbound.push(edge);
+      }
+
+      for (const edge of outbound) {
+        map.set(edge, center);
+      }
+
+      // Sort inbound by opposite endpoint's absolute X
       if (face === "top" || face === "bottom") {
-        edgeList.sort((a, b) => {
-          const otherA = (a.srcEl === el) ? a.tgtEl : a.srcEl;
-          const otherB = (b.srcEl === el) ? b.tgtEl : b.srcEl;
-          const rA = elRect(otherA, hRect, scrollLeft, scrollTop);
-          const rB = elRect(otherB, hRect, scrollLeft, scrollTop);
+        inbound.sort((a, b) => {
+          const rA = elRect(a.srcEl, hRect, scrollLeft, scrollTop);
+          const rB = elRect(b.srcEl, hRect, scrollLeft, scrollTop);
           return (rA.x + rA.w / 2) - (rB.x + rB.w / 2);
         });
       }
 
-      const length = (face === "top" || face === "bottom") ? rect.w : rect.h;
-      const map = new Map<RoutedEdge, number>();
-      const PAD = 6;
-
-      if (edgeList.length === 1 && (face === "top" || face === "bottom")) {
-        // Align slot with opposite endpoint's absolute X, clamped to element bounds
-        const other = (edgeList[0].srcEl === el) ? edgeList[0].tgtEl : edgeList[0].srcEl;
-        const otherRect = elRect(other, hRect, scrollLeft, scrollTop);
-        const otherCx = otherRect.x + otherRect.w / 2;
-        const offset = Math.max(PAD, Math.min(length - PAD, otherCx - rect.x));
-        map.set(edgeList[0], offset);
-      } else {
-        const spacing = length / (edgeList.length + 1);
-        for (let i = 0; i < edgeList.length; i++) {
-          map.set(edgeList[i], spacing * (i + 1));
+      const usedOffsets: number[] = [];
+      for (const edge of inbound) {
+        let offset = center;
+        while (usedOffsets.some(u => Math.abs(u - offset) < ARROW_MARGIN)) {
+          offset += ARROW_MARGIN;
         }
+        offset = Math.max(6, Math.min(length - 6, offset));
+        map.set(edge, offset);
+        usedOffsets.push(offset);
       }
+
       elSlots.set(face, map);
     }
     slotPositions.set(el, elSlots);
