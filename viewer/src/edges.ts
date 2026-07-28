@@ -404,12 +404,6 @@ function sortLevel(
       const boxUuid = child.dataset.uuid;
       const incoming = boxUuid ? maps.incomingByUuid[boxUuid] : undefined;
       if (incoming && incoming.length > 0) {
-        if (vDir === "mid") {
-          const hasAbove = incoming.some(r => r.srcPart < srcPart);
-          const hasBelow = incoming.some(r => r.srcPart > srcPart);
-          if (hasAbove && !hasBelow) vDir = "up";
-          else if (hasBelow && !hasAbove) vDir = "down";
-        }
         if (hDir === "center") {
           const avgX = incoming.reduce((s, r) => s + r.srcXCenter, 0) / incoming.length;
           if (srcXCenter > avgX) { hDir = "right"; rightCount++; }
