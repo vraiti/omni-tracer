@@ -279,26 +279,39 @@ function initDragDrop(): void {
 
     const hl = ensureHighlight(container);
 
-    let placed = false;
+    const first = bounds[0];
+    const last = bounds[bounds.length - 1];
 
-    for (let i = 0; i < bounds.length; i++) {
-      const row = bounds[i];
-      const regionTop = i === 0 ? 0 : (bounds[i - 1].y + bounds[i - 1].h + row.y) / 2;
-      const regionBot = i === bounds.length - 1
-        ? row.y + row.h + DROP_MARGIN
-        : (row.y + row.h + bounds[i + 1].y) / 2;
+    if (localY < first.y) {
+      hl.style.top = "0";
+      hl.style.height = first.y + "px";
+      hl.className = "row-drop-highlight new-row";
+      hl.dataset.targetRow = "before:0";
+    } else if (localY > last.y + last.h) {
+      hl.style.top = (last.y + last.h) + "px";
+      hl.style.height = DROP_MARGIN + "px";
+      hl.className = "row-drop-highlight new-row";
+      hl.dataset.targetRow = "after:" + (bounds.length - 1);
+    } else {
+      let placed = false;
+      for (let i = 0; i < bounds.length; i++) {
+        const row = bounds[i];
+        const regionTop = i === 0 ? first.y : (bounds[i - 1].y + bounds[i - 1].h + row.y) / 2;
+        const regionBot = i === bounds.length - 1
+          ? last.y + last.h
+          : (row.y + row.h + bounds[i + 1].y) / 2;
 
-      if (localY < regionTop || localY > regionBot) continue;
+        if (localY < regionTop || localY > regionBot) continue;
 
-      hl.style.top = row.y + "px";
-      hl.style.height = row.h + "px";
-      hl.className = "row-drop-highlight";
-      hl.dataset.targetRow = String(i);
-      placed = true;
-      break;
+        hl.style.top = row.y + "px";
+        hl.style.height = row.h + "px";
+        hl.className = "row-drop-highlight";
+        hl.dataset.targetRow = String(i);
+        placed = true;
+        break;
+      }
+      if (!placed) removeHighlight();
     }
-
-    if (!placed) removeHighlight();
   });
 
   hierarchyEl.addEventListener("dragleave", e => {
@@ -327,17 +340,23 @@ function initDragDrop(): void {
     const newRows = rootRows.map(r => r.filter(u => u !== uuid));
     const filtered = newRows.filter(r => r.length > 0);
 
-    const idx = parseInt(targetInfo, 10);
-    const row = bounds[idx];
-    if (row) {
-      const targetRow = filtered.find(r => row.uuids.some(u => r.includes(u)));
-      if (targetRow) {
-        targetRow.push(uuid);
+    if (targetInfo === "before:0") {
+      filtered.splice(0, 0, [uuid]);
+    } else if (targetInfo.startsWith("after:")) {
+      filtered.push([uuid]);
+    } else {
+      const idx = parseInt(targetInfo, 10);
+      const row = bounds[idx];
+      if (row) {
+        const targetRow = filtered.find(r => row.uuids.some(u => r.includes(u)));
+        if (targetRow) {
+          targetRow.push(uuid);
+        } else {
+          filtered.push([uuid]);
+        }
       } else {
         filtered.push([uuid]);
       }
-    } else {
-      filtered.push([uuid]);
     }
 
     setRootRows(filtered);

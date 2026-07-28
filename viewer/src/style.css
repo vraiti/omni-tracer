@@ -323,6 +323,10 @@ body {
   z-index: 1;
 }
 
+.row-drop-highlight.new-row {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .context-menu {
   position: fixed;
   background: #1a1a1a;
