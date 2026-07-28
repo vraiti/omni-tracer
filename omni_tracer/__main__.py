@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import atexit
 import multiprocessing
 import os
-import signal
 import sys
 
 from omni_tracer.cli import parse_args
@@ -52,7 +52,13 @@ def _traced_server(
     thread_hook = ThreadHook(trace_hook._global_trace)
     process_hook = ProcessHook(output_dir, tracked_classes, capture_specs_raw=capture_specs_raw)
 
+    _written = False
+
     def _write_trace() -> None:
+        nonlocal _written
+        if _written:
+            return
+        _written = True
         trace_hook.uninstall()
         thread_hook.uninstall()
         process_hook.uninstall()
@@ -60,11 +66,7 @@ def _traced_server(
         print(f"Trace written to {output_file}")
         print(f"Subprocess traces written to {output_dir}/")
 
-    def _sigterm_handler(signum, frame):
-        _write_trace()
-        raise SystemExit(0)
-
-    signal.signal(signal.SIGTERM, _sigterm_handler)
+    atexit.register(_write_trace)
 
     trace_hook.install()
     thread_hook.install()
