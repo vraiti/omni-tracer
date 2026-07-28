@@ -256,6 +256,12 @@ body {
   opacity: 1;
 }
 
+#edge-svg path.cross-process-edge.edge-highlight {
+  stroke: #fb4;
+  stroke-width: 4;
+  opacity: 1;
+}
+
 #edge-svg marker path {
   fill: #5a9;
   stroke: none;

@@ -1132,7 +1132,8 @@ function drawPaths(paths: EdgePath[]): void {
       const path = document.createElementNS(svgNs, "path");
       path.setAttribute("d", d);
       path.classList.add("cross-process-edge");
-      path.setAttribute("data-target-uuid", uuidA);
+      path.setAttribute("data-ipc-a", uuidA);
+      path.setAttribute("data-ipc-b", uuidB);
       svg.appendChild(path);
     }
   }
@@ -1151,6 +1152,21 @@ export function highlightEdges(targetUuid: string): void {
   for (const path of svg.querySelectorAll("path[data-target-uuid]")) {
     if (path.getAttribute("data-target-uuid") === targetUuid) {
       path.classList.add("edge-highlight");
+    }
+  }
+  for (const path of svg.querySelectorAll("path.cross-process-edge")) {
+    const a = path.getAttribute("data-ipc-a");
+    const b = path.getAttribute("data-ipc-b");
+    if (a === targetUuid || b === targetUuid) {
+      path.classList.add("edge-highlight");
+      const partner = a === targetUuid ? b : a;
+      if (partner) {
+        const box = hierarchyEl.querySelector(`.obj-box[data-uuid="${partner}"]`);
+        if (box) box.classList.add("group-highlight");
+        for (const ref of hierarchyEl.querySelectorAll(`.obj-ref[data-ref-target="${partner}"]`)) {
+          ref.classList.add("group-highlight");
+        }
+      }
     }
   }
 }
