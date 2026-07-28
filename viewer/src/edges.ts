@@ -279,7 +279,6 @@ function initDragDrop(): void {
 
     const hl = ensureHighlight(container);
 
-    const NEW_ROW_ZONE = 12;
     let placed = false;
 
     for (let i = 0; i < bounds.length; i++) {
@@ -291,22 +290,10 @@ function initDragDrop(): void {
 
       if (localY < regionTop || localY > regionBot) continue;
 
-      if (localY < regionTop + NEW_ROW_ZONE && i > 0) {
-        hl.style.top = regionTop + "px";
-        hl.style.height = "3px";
-        hl.className = "row-drop-highlight new-row";
-        hl.dataset.targetRow = "before:" + i;
-      } else if (localY > regionBot - NEW_ROW_ZONE && i < bounds.length - 1) {
-        hl.style.top = (regionBot - 3) + "px";
-        hl.style.height = "3px";
-        hl.className = "row-drop-highlight new-row";
-        hl.dataset.targetRow = "after:" + i;
-      } else {
-        hl.style.top = row.y + "px";
-        hl.style.height = row.h + "px";
-        hl.className = "row-drop-highlight";
-        hl.dataset.targetRow = String(i);
-      }
+      hl.style.top = row.y + "px";
+      hl.style.height = row.h + "px";
+      hl.className = "row-drop-highlight";
+      hl.dataset.targetRow = String(i);
       placed = true;
       break;
     }
@@ -340,27 +327,17 @@ function initDragDrop(): void {
     const newRows = rootRows.map(r => r.filter(u => u !== uuid));
     const filtered = newRows.filter(r => r.length > 0);
 
-    if (targetInfo.startsWith("before:")) {
-      const idx = parseInt(targetInfo.split(":")[1], 10);
-      const mappedIdx = mapBoundsIdxToRowIdx(bounds, idx, filtered);
-      filtered.splice(mappedIdx, 0, [uuid]);
-    } else if (targetInfo.startsWith("after:")) {
-      const idx = parseInt(targetInfo.split(":")[1], 10);
-      const mappedIdx = mapBoundsIdxToRowIdx(bounds, idx, filtered);
-      filtered.splice(mappedIdx + 1, 0, [uuid]);
-    } else {
-      const idx = parseInt(targetInfo, 10);
-      const row = bounds[idx];
-      if (row) {
-        const targetRow = filtered.find(r => row.uuids.some(u => r.includes(u)));
-        if (targetRow) {
-          targetRow.push(uuid);
-        } else {
-          filtered.push([uuid]);
-        }
+    const idx = parseInt(targetInfo, 10);
+    const row = bounds[idx];
+    if (row) {
+      const targetRow = filtered.find(r => row.uuids.some(u => r.includes(u)));
+      if (targetRow) {
+        targetRow.push(uuid);
       } else {
         filtered.push([uuid]);
       }
+    } else {
+      filtered.push([uuid]);
     }
 
     setRootRows(filtered);
@@ -369,15 +346,6 @@ function initDragDrop(): void {
   });
 
   document.addEventListener("dragend", stopAutoScroll);
-}
-
-function mapBoundsIdxToRowIdx(bounds: RowBound[], boundsIdx: number, rows: string[][]): number {
-  if (boundsIdx < 0 || boundsIdx >= bounds.length) return rows.length;
-  const refUuids = bounds[boundsIdx].uuids;
-  for (let i = 0; i < rows.length; i++) {
-    if (refUuids.some(u => rows[i].includes(u))) return i;
-  }
-  return rows.length;
 }
 
 function collectCrossEdges(entries: RootEntry[]): CrossEdge[] {
