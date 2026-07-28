@@ -626,6 +626,42 @@ function drawEdges(): void {
     slotPositions.set(el, elSlots);
   }
 
+  // Enforce margin across all slots sharing the same root box face.
+  // Convert per-element offsets to absolute X, sort, spread, convert back.
+  const rootFaceSlots = new Map<string, { edge: RoutedEdge; el: Element; face: Face; absX: number }[]>();
+  for (const edge of edges) {
+    for (const [el, isSource] of [[edge.srcEl, true], [edge.tgtEl, false]] as [Element, boolean][]) {
+      const face = resolveEdgeFace(el, isSource, edge);
+      if (face !== "top" && face !== "bottom") continue;
+      const root = isSource ? edge.srcRoot : edge.tgtRoot;
+      const rootId = (root as HTMLElement).dataset.uuid || "";
+      const key = rootId + ":" + face;
+      if (!rootFaceSlots.has(key)) rootFaceSlots.set(key, []);
+      const elSlots = slotPositions.get(el);
+      const faceSlots = elSlots?.get(face);
+      const offset = faceSlots?.get(edge) ?? 0;
+      const elR = elRect(el, hRect, scrollLeft, scrollTop);
+      rootFaceSlots.get(key)!.push({ edge, el, face, absX: elR.x + offset });
+    }
+  }
+
+  for (const [, slots] of rootFaceSlots) {
+    if (slots.length < 2) continue;
+    slots.sort((a, b) => a.absX - b.absX);
+    for (let i = 1; i < slots.length; i++) {
+      if (slots[i].absX - slots[i - 1].absX < ARROW_MARGIN) {
+        slots[i].absX = slots[i - 1].absX + ARROW_MARGIN;
+      }
+    }
+    for (const { edge, el, face, absX } of slots) {
+      const elSlots = slotPositions.get(el);
+      const faceSlots = elSlots?.get(face);
+      if (!faceSlots) continue;
+      const elR = elRect(el, hRect, scrollLeft, scrollTop);
+      faceSlots.set(edge, absX - elR.x);
+    }
+  }
+
   // Helper to get anchor point for an edge at a given element's face
   function getAnchor(el: Element, face: Face, edge: RoutedEdge): Point {
     const rect = elRect(el, hRect, scrollLeft, scrollTop);
