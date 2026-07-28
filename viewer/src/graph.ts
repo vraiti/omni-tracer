@@ -165,7 +165,8 @@ export function findIdentifierPairs(objects: TraceData): [string, string][] {
 
   for (const [uuid, obj] of Object.entries(objects)) {
     const cls = getClassName(obj.ref);
-    const attrKey = IDENTIFIER_ATTRS[cls];
+    const shortCls = cls.includes(".") ? cls.split(".").pop()! : cls;
+    const attrKey = IDENTIFIER_ATTRS[shortCls];
     if (!attrKey) continue;
     const idValue = obj.attrs?.[attrKey];
     if (!idValue) continue;
