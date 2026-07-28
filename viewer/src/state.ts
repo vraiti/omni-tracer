@@ -11,6 +11,7 @@ export let entrypointClasses = new Set<string>();
 export let creationOrder: CreationOrder = {};
 export let effectiveParentMap: EffectiveParentMap = {};
 export let rootRows: string[][] = [];
+export let ownershipOverrides: Record<string, string> = {};
 
 let currentTracePath: string | null = null;
 
@@ -31,6 +32,7 @@ interface Config {
   pinnedRoots?: string[];
   entrypoints?: string[];
   rootRows?: string[][];
+  ownershipOverrides?: Record<string, string>;
 }
 
 function applyConfig(cfg: Config): void {
@@ -39,6 +41,7 @@ function applyConfig(cfg: Config): void {
   pinnedRootClasses = new Set(cfg.pinnedRoots || []);
   entrypointClasses = new Set(cfg.entrypoints || []);
   rootRows = cfg.rootRows || [];
+  ownershipOverrides = cfg.ownershipOverrides || {};
 }
 
 function clearState(): void {
@@ -47,6 +50,7 @@ function clearState(): void {
   pinnedRootClasses = new Set();
   entrypointClasses = new Set();
   rootRows = [];
+  ownershipOverrides = {};
 }
 
 export async function loadConfig(tracePath: string): Promise<void> {
@@ -61,6 +65,13 @@ export async function loadConfig(tracePath: string): Promise<void> {
   clearState();
 }
 
+export function applyOwnershipOverrides(): void {
+  if (!traceData) return;
+  for (const [uuid, parent] of Object.entries(ownershipOverrides)) {
+    if (traceData[uuid]) traceData[uuid].created_by = parent;
+  }
+}
+
 export function saveConfig(): void {
   if (!currentTracePath) return;
   const cfg: Config = {
@@ -69,6 +80,7 @@ export function saveConfig(): void {
     pinnedRoots: Array.from(pinnedRootClasses),
     entrypoints: Array.from(entrypointClasses),
     rootRows,
+    ownershipOverrides,
   };
   fetch("/save-config?trace=" + encodeURIComponent(currentTracePath), {
     method: "POST",

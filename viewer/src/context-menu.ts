@@ -1,5 +1,6 @@
 import {
-  traceData, excludedClasses, pinnedRootClasses, entrypointClasses, saveConfig,
+  traceData, excludedClasses, pinnedRootClasses, entrypointClasses,
+  ownershipOverrides, saveConfig,
 } from "./state";
 import { getClassName } from "./graph";
 import { render, buildAndRender } from "./render";
@@ -92,14 +93,14 @@ export function initContextMenu(): void {
       const parentUuid = parentBox?.dataset.uuid;
       const refTarget = refEl.dataset.refTarget;
       if (parentUuid && refTarget && traceData && traceData[refTarget]) {
-        const targetObj = traceData[refTarget];
-        const isTransferred = targetObj.created_by === parentUuid;
+        const isTransferred = ownershipOverrides[refTarget] === parentUuid;
         items.push({
           label: "Transfer ownership here",
           checked: isTransferred,
           action: () => {
-            if (isTransferred) delete targetObj.created_by;
-            else targetObj.created_by = parentUuid;
+            if (isTransferred) delete ownershipOverrides[refTarget];
+            else ownershipOverrides[refTarget] = parentUuid;
+            traceData![refTarget].created_by = ownershipOverrides[refTarget] ?? undefined;
             saveConfig();
             buildAndRender();
           },

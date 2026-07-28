@@ -1,5 +1,5 @@
 import type { TraceData } from "./types";
-import { setTraceData, setTraceFileName, loadConfig, saveLastTrace } from "./state";
+import { setTraceData, setTraceFileName, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
 import { buildAndRender } from "./render";
 import { updateExcludeBtn, updatePinRootBtn, updateEntrypointBtn } from "./panels";
 
@@ -12,6 +12,7 @@ export function initLoader(): void {
 async function applyTrace(raw: Record<string, unknown>, tracePath: string): Promise<void> {
   setTraceData((raw.objects || {}) as TraceData);
   await loadConfig(tracePath);
+  applyOwnershipOverrides();
   updateExcludeBtn();
   updatePinRootBtn();
   updateEntrypointBtn();
