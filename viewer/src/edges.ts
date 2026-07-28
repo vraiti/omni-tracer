@@ -201,6 +201,32 @@ function placeNodes(
 function initDragDrop(): void {
   let highlightEl: HTMLElement | null = null;
   let activeContainer: HTMLElement | null = null;
+  let scrollRaf = 0;
+
+  const SCROLL_ZONE = 60;
+  const SCROLL_SPEED = 12;
+
+  function autoScroll(clientY: number): void {
+    cancelAnimationFrame(scrollRaf);
+    const vh = window.innerHeight;
+    let delta = 0;
+    if (clientY < SCROLL_ZONE) {
+      delta = -SCROLL_SPEED * (1 - clientY / SCROLL_ZONE);
+    } else if (clientY > vh - SCROLL_ZONE) {
+      delta = SCROLL_SPEED * (1 - (vh - clientY) / SCROLL_ZONE);
+    }
+    if (delta !== 0) {
+      scrollRaf = requestAnimationFrame(function tick() {
+        window.scrollBy(0, delta);
+        scrollRaf = requestAnimationFrame(tick);
+      });
+    }
+  }
+
+  function stopAutoScroll(): void {
+    cancelAnimationFrame(scrollRaf);
+    scrollRaf = 0;
+  }
 
   function ensureHighlight(container: HTMLElement): HTMLElement {
     if (activeContainer !== container || !highlightEl || !highlightEl.parentElement) {
@@ -226,6 +252,7 @@ function initDragDrop(): void {
     if (!container) { removeHighlight(); return; }
     e.preventDefault();
     e.dataTransfer!.dropEffect = "move";
+    autoScroll(e.clientY);
 
     const bounds = rowBoundsPerContainer.get(container);
     if (!bounds || bounds.length === 0) { removeHighlight(); return; }
@@ -289,11 +316,13 @@ function initDragDrop(): void {
   hierarchyEl.addEventListener("dragleave", e => {
     if (!hierarchyEl.contains(e.relatedTarget as Node)) {
       removeHighlight();
+      stopAutoScroll();
     }
   });
 
   hierarchyEl.addEventListener("drop", e => {
     e.preventDefault();
+    stopAutoScroll();
     const uuid = e.dataTransfer?.getData("text/plain");
     if (!uuid) { removeHighlight(); return; }
 
@@ -337,6 +366,8 @@ function initDragDrop(): void {
     saveConfig();
     if (onDropRebuild) onDropRebuild();
   });
+
+  document.addEventListener("dragend", stopAutoScroll);
 }
 
 function mapBoundsIdxToRowIdx(bounds: RowBound[], boundsIdx: number, rows: string[][]): number {
