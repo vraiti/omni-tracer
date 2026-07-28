@@ -614,22 +614,8 @@ function drawEdges(): void {
   // Route paths
   const paths: EdgePath[] = [];
 
-  // Collect all root box rects for channel allocation
-  const rootRects: Rect[] = [];
-  for (const rb of allRootBoxes) {
-    rootRects.push(elRect(rb, hRect, scrollLeft, scrollTop));
-  }
-
   // Channel allocator: tracks used channel positions to avoid overlap
-  const usedChannelX = new Set<number>();
   const usedChannelY = new Set<number>();
-
-  function allocateChannelX(preferredX: number): number {
-    let x = Math.round(preferredX);
-    while (usedChannelX.has(x)) x += CHANNEL_SPACING;
-    usedChannelX.add(x);
-    return x;
-  }
 
   function allocateChannelY(preferredY: number): number {
     let y = Math.round(preferredY);
@@ -640,70 +626,22 @@ function drawEdges(): void {
 
   for (let i = 0; i < edges.length; i++) {
     const edge = edges[i];
-    const rowDelta = Math.abs(edge.srcPartition - edge.tgtPartition);
-    const srcAbove = edge.srcPartition < edge.tgtPartition;
 
-    if (rowDelta === 1) {
-      // Single-row hop: bottom of upper → top of lower
-      const srcFace: Face = srcAbove ? "bottom" : "top";
-      const tgtFace: Face = srcAbove ? "top" : "bottom";
+    const srcFace = resolveEdgeFace(edge.srcEl, true, edge);
+    const tgtFace = resolveEdgeFace(edge.tgtEl, false, edge);
 
-      const start = getAnchor(edge.srcEl, srcFace, edge);
-      const end = getAnchor(edge.tgtEl, tgtFace, edge);
+    const start = getAnchor(edge.srcEl, srcFace, edge);
+    const end = getAnchor(edge.tgtEl, tgtFace, edge);
 
-      if (Math.abs(start.x - end.x) < 1) {
-        paths.push({ pts: [start, end], targetUuid: edge.targetUuid, id: "edge_" + i });
-      } else {
-        const midY = allocateChannelY(Math.round((start.y + end.y) / 2));
-        paths.push({
-          pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
-          targetUuid: edge.targetUuid,
-          id: "edge_" + i,
-        });
-      }
+    if (Math.abs(start.x - end.x) < 1) {
+      paths.push({ pts: [start, end], targetUuid: edge.targetUuid, id: "edge_" + i });
     } else {
-      // Same-row or multi-row: side faces, use root box x-centers for side
-      const srcRootRect = elRect(edge.srcRoot, hRect, scrollLeft, scrollTop);
-      const tgtRootRect = elRect(edge.tgtRoot, hRect, scrollLeft, scrollTop);
-      const srcRootCx = srcRootRect.x + srcRootRect.w / 2;
-      const tgtRootCx = tgtRootRect.x + tgtRootRect.w / 2;
-
-      let side: "left" | "right";
-      if (tgtRootCx < srcRootCx) side = "left";
-      else if (tgtRootCx > srcRootCx) side = "right";
-      else {
-        const srcFaces = faceEdges.get(edge.srcEl);
-        side = (srcFaces && srcFaces.left.length <= srcFaces.right.length) ? "left" : "right";
-      }
-
-      const start = getAnchor(edge.srcEl, side, edge);
-      const end = getAnchor(edge.tgtEl, side, edge);
-
-      if (rowDelta === 0) {
-        // Same-row: route below the row
-        const maxBottom = Math.max(srcRootRect.y + srcRootRect.h, tgtRootRect.y + tgtRootRect.h);
-        const channelY = allocateChannelY(maxBottom + 20);
-        paths.push({
-          pts: [start, { x: start.x, y: channelY }, { x: end.x, y: channelY }, end],
-          targetUuid: edge.targetUuid,
-          id: "edge_" + i,
-        });
-      } else {
-        // Multi-row: route through vertical channel outside all root boxes
-        let channelX: number;
-        if (side === "left") {
-          const minX = Math.min(...rootRects.map(r => r.x));
-          channelX = allocateChannelX(minX - 20);
-        } else {
-          const maxX = Math.max(...rootRects.map(r => r.x + r.w));
-          channelX = allocateChannelX(maxX + 20);
-        }
-        paths.push({
-          pts: [start, { x: channelX, y: start.y }, { x: channelX, y: end.y }, end],
-          targetUuid: edge.targetUuid,
-          id: "edge_" + i,
-        });
-      }
+      const midY = allocateChannelY(Math.round((start.y + end.y) / 2));
+      paths.push({
+        pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
+        targetUuid: edge.targetUuid,
+        id: "edge_" + i,
+      });
     }
   }
 
