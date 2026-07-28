@@ -547,6 +547,14 @@ function drawEdges(): void {
 
   if (edges.length === 0) { clearEdgeSvg(); return; }
 
+  // Classify edges and assign faces
+  const faceEdges = new Map<Element, { top: RoutedEdge[]; bottom: RoutedEdge[]; left: RoutedEdge[]; right: RoutedEdge[] }>();
+
+  function getFace(el: Element) {
+    if (!faceEdges.has(el)) faceEdges.set(el, { top: [], bottom: [], left: [], right: [] });
+    return faceEdges.get(el)!;
+  }
+
   function resolveEdgeFace(el: Element, isSource: boolean, edge: RoutedEdge): Face {
     const dataFace = (el as HTMLElement).dataset.face;
     if (dataFace === "top" || dataFace === "bottom") return dataFace;
@@ -555,84 +563,73 @@ function drawEdges(): void {
     return srcAbove ? "top" : "bottom";
   }
 
-  // Group edges by root box + face, then compute slot positions
-  // using RMS-minimized centering sorted by source absolute X
-  const SLOT_MARGIN = 10;
-  const edgeSlotX = new Map<RoutedEdge, { srcX: number; tgtX: number }>();
-
-  type RootFaceKey = string;
-  function rootFaceKey(root: HTMLElement, face: Face): RootFaceKey {
-    return (rootElToId.get(root) || "") + ":" + face;
-  }
-
-  // Collect edges grouped by (root, face) for both source and target sides
-  const rootFaceGroups = new Map<RootFaceKey, { root: HTMLElement; face: Face; edges: { edge: RoutedEdge; isSource: boolean }[] }>();
-
   for (const edge of edges) {
     const srcFace = resolveEdgeFace(edge.srcEl, true, edge);
     const tgtFace = resolveEdgeFace(edge.tgtEl, false, edge);
-
-    for (const [root, face, isSrc] of [
-      [edge.srcRoot, srcFace, true],
-      [edge.tgtRoot, tgtFace, false],
-    ] as [HTMLElement, Face, boolean][]) {
-      const key = rootFaceKey(root, face);
-      if (!rootFaceGroups.has(key)) rootFaceGroups.set(key, { root, face, edges: [] });
-      rootFaceGroups.get(key)!.edges.push({ edge, isSource: isSrc });
-    }
+    getFace(edge.srcEl)[srcFace].push(edge);
+    getFace(edge.tgtEl)[tgtFace].push(edge);
   }
 
-  for (const [, group] of rootFaceGroups) {
-    if (group.face !== "top" && group.face !== "bottom") continue;
-    const rootRect = elRect(group.root, hRect, scrollLeft, scrollTop);
+  // Compute slot positions for each face of each element
+  type SlotMap = Map<Element, Map<Face, Map<RoutedEdge, number>>>;
+  const slotPositions: SlotMap = new Map();
 
-    // Sort by origin (opposite end) absolute X
-    group.edges.sort((a, b) => {
-      const srcA = a.isSource ? a.edge.tgtEl : a.edge.srcEl;
-      const srcB = b.isSource ? b.edge.tgtEl : b.edge.srcEl;
-      const rA = elRect(srcA, hRect, scrollLeft, scrollTop);
-      const rB = elRect(srcB, hRect, scrollLeft, scrollTop);
-      return (rA.x + rA.w / 2) - (rB.x + rB.w / 2);
-    });
+  for (const [el, faces] of faceEdges) {
+    const rect = elRect(el, hRect, scrollLeft, scrollTop);
+    const elSlots = new Map<Face, Map<RoutedEdge, number>>();
 
-    const n = group.edges.length;
-    const groupWidth = (n - 1) * SLOT_MARGIN;
+    for (const face of ["top", "bottom", "left", "right"] as Face[]) {
+      const edgeList = faces[face];
+      if (edgeList.length === 0) continue;
 
-    // Each edge's destination center X (the child element inside this root)
-    const destCenters = group.edges.map(({ edge, isSource }) => {
-      const childEl = isSource ? edge.srcEl : edge.tgtEl;
-      const childRect = elRect(childEl, hRect, scrollLeft, scrollTop);
-      return childRect.x + childRect.w / 2;
-    });
+      // Sort by opposite endpoint's absolute X to minimize crossings at this face
+      if (face === "top" || face === "bottom") {
+        edgeList.sort((a, b) => {
+          const otherA = (a.srcEl === el) ? a.tgtEl : a.srcEl;
+          const otherB = (b.srcEl === el) ? b.tgtEl : b.srcEl;
+          const rA = elRect(otherA, hRect, scrollLeft, scrollTop);
+          const rB = elRect(otherB, hRect, scrollLeft, scrollTop);
+          return (rA.x + rA.w / 2) - (rB.x + rB.w / 2);
+        });
+      }
 
-    // Optimal x0: minimize sum((x0 + i*SLOT_MARGIN - destCenters[i])^2)
-    // x0 = mean(destCenters) - SLOT_MARGIN * mean(indices)
-    const meanDest = destCenters.reduce((s, v) => s + v, 0) / n;
-    const meanIdx = (n - 1) / 2;
-    let x0 = meanDest - SLOT_MARGIN * meanIdx;
+      const length = (face === "top" || face === "bottom") ? rect.w : rect.h;
+      const map = new Map<RoutedEdge, number>();
+      const PAD = 6;
 
-    // Clamp group to root box bounds
-    const PAD = 6;
-    x0 = Math.max(rootRect.x + PAD, Math.min(rootRect.x + rootRect.w - PAD - groupWidth, x0));
-
-    for (let i = 0; i < n; i++) {
-      const slotX = x0 + i * SLOT_MARGIN;
-      const { edge, isSource } = group.edges[i];
-      const entry = edgeSlotX.get(edge) || { srcX: 0, tgtX: 0 };
-      if (isSource) entry.srcX = slotX;
-      else entry.tgtX = slotX;
-      edgeSlotX.set(edge, entry);
+      if (edgeList.length === 1 && (face === "top" || face === "bottom")) {
+        // Align slot with opposite endpoint's absolute X, clamped to element bounds
+        const other = (edgeList[0].srcEl === el) ? edgeList[0].tgtEl : edgeList[0].srcEl;
+        const otherRect = elRect(other, hRect, scrollLeft, scrollTop);
+        const otherCx = otherRect.x + otherRect.w / 2;
+        const offset = Math.max(PAD, Math.min(length - PAD, otherCx - rect.x));
+        map.set(edgeList[0], offset);
+      } else {
+        const spacing = length / (edgeList.length + 1);
+        for (let i = 0; i < edgeList.length; i++) {
+          map.set(edgeList[i], spacing * (i + 1));
+        }
+      }
+      elSlots.set(face, map);
     }
+    slotPositions.set(el, elSlots);
   }
 
   // Helper to get anchor point for an edge at a given element's face
   function getAnchor(el: Element, face: Face, edge: RoutedEdge): Point {
     const rect = elRect(el, hRect, scrollLeft, scrollTop);
-    const isSource = edge.srcEl === el;
-    const slot = edgeSlotX.get(edge);
-    const x = slot ? (isSource ? slot.srcX : slot.tgtX) : (rect.x + rect.w / 2);
-    const y = (face === "top") ? rect.y : (face === "bottom") ? rect.y + rect.h : rect.y + rect.h / 2;
-    return { x, y };
+    const elSlots = slotPositions.get(el);
+    const faceSlots = elSlots?.get(face);
+    const offset = faceSlots?.get(edge) ?? (
+      (face === "top" || face === "bottom") ? rect.w / 2 : rect.h / 2
+    );
+
+    switch (face) {
+      case "top": return { x: rect.x + offset, y: rect.y };
+      case "bottom": return { x: rect.x + offset, y: rect.y + rect.h };
+      case "left": return { x: rect.x, y: rect.y + offset };
+      case "right": return { x: rect.x + rect.w, y: rect.y + offset };
+    }
   }
 
   // Route paths
