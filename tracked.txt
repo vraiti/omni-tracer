@@ -9,3 +9,5 @@ janus._AsyncQueueProxy
 torch.nn.modules.container.ModuleList
 torch.nn.modules.container.ModuleDict
 torch.nn.modules.container.Sequential
+multiprocessing.shared_memory.SharedMemory
+vllm.distributed.device_communicators.shm_broadcast.SpinCondition
