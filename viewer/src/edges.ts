@@ -8,6 +8,7 @@ const NODE_GAP = 24;
 const ROW_GAP = 48;
 const PROCESS_PAD = 16;
 const CHANNEL_SPACING = 16;
+const DROP_MARGIN = 32;
 
 interface RowBound {
   y: number;
@@ -180,7 +181,7 @@ function placeNodes(
   byPartition: Map<number, RootEntry[]>,
   extraGap?: Map<number, number>,
 ): void {
-  let y = PROCESS_PAD;
+  let y = DROP_MARGIN;
   for (const p of partitions) {
     const row = byPartition.get(p)!;
     let x = PROCESS_PAD;
@@ -630,7 +631,7 @@ function sizeContainers(): void {
       if (b > maxBottom) maxBottom = b;
     }
     container.style.width = (maxRight + PROCESS_PAD) + "px";
-    container.style.height = (maxBottom + PROCESS_PAD) + "px";
+    container.style.height = (maxBottom + DROP_MARGIN) + "px";
   }
 }
 
