@@ -12,6 +12,8 @@ export let creationOrder: CreationOrder = {};
 export let effectiveParentMap: EffectiveParentMap = {};
 export let rootRows: string[][] = [];
 
+let currentTracePath: string | null = null;
+
 export function setTraceData(data: TraceData) { traceData = data; }
 export function setTraceFileName(name: string) { traceFileName = name; }
 export function setParentMap(pm: ParentMap) { parentMap = pm; }
@@ -23,62 +25,77 @@ export function setEntrypointClasses(s: Set<string>) { entrypointClasses = s; }
 export function markRendered(uuid: string) { rendered[uuid] = true; }
 export function isRendered(uuid: string): boolean { return !!rendered[uuid]; }
 
-function configKey(): string {
-  return "omni-tracer:" + (traceFileName || "unknown");
+interface Config {
+  collapsed?: string[];
+  excluded?: string[];
+  pinnedRoots?: string[];
+  entrypoints?: string[];
+  rootRows?: string[][];
 }
 
-export function loadConfig(): void {
-  try {
-    const raw = localStorage.getItem(configKey());
-    if (raw) {
-      const cfg = JSON.parse(raw);
-      collapsedSet = new Set(cfg.collapsed || []);
-      excludedClasses = new Set(cfg.excluded || []);
-      pinnedRootClasses = new Set(cfg.pinnedRoots || []);
-      entrypointClasses = new Set(cfg.entrypoints || []);
-      rootRows = cfg.rootRows || [];
-    } else {
-      collapsedSet = new Set();
-      excludedClasses = new Set();
-      pinnedRootClasses = new Set();
-      rootRows = [];
-    }
-  } catch {
-    collapsedSet = new Set();
-    excludedClasses = new Set();
-    pinnedRootClasses = new Set();
-    entrypointClasses = new Set();
-    rootRows = [];
-  }
+function applyConfig(cfg: Config): void {
+  collapsedSet = new Set(cfg.collapsed || []);
+  excludedClasses = new Set(cfg.excluded || []);
+  pinnedRootClasses = new Set(cfg.pinnedRoots || []);
+  entrypointClasses = new Set(cfg.entrypoints || []);
+  rootRows = cfg.rootRows || [];
 }
 
-export function resetConfig(): void {
+function clearState(): void {
   collapsedSet = new Set();
   excludedClasses = new Set();
   pinnedRootClasses = new Set();
   entrypointClasses = new Set();
   rootRows = [];
-  try { localStorage.removeItem(configKey()); } catch {}
+}
+
+export async function loadConfig(tracePath: string): Promise<void> {
+  currentTracePath = tracePath;
+  try {
+    const res = await fetch("/" + tracePath + ".config.json", { cache: "no-store" });
+    if (res.ok) {
+      applyConfig(await res.json());
+      return;
+    }
+  } catch {}
+  clearState();
 }
 
 export function saveConfig(): void {
-  try {
-    localStorage.setItem(configKey(), JSON.stringify({
-      collapsed: Array.from(collapsedSet),
-      excluded: Array.from(excludedClasses),
-      pinnedRoots: Array.from(pinnedRootClasses),
-      entrypoints: Array.from(entrypointClasses),
-      rootRows,
-    }));
-  } catch { /* quota exceeded or private browsing */ }
+  if (!currentTracePath) return;
+  const cfg: Config = {
+    collapsed: Array.from(collapsedSet),
+    excluded: Array.from(excludedClasses),
+    pinnedRoots: Array.from(pinnedRootClasses),
+    entrypoints: Array.from(entrypointClasses),
+    rootRows,
+  };
+  fetch("/save-config?trace=" + encodeURIComponent(currentTracePath), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg, null, 2),
+  }).catch(() => {});
 }
 
-const LAST_TRACE_KEY = "omni-tracer:last-trace";
+export async function resetConfig(): Promise<void> {
+  clearState();
+  if (!currentTracePath) return;
+  fetch("/delete-config?trace=" + encodeURIComponent(currentTracePath), {
+    method: "POST",
+  }).catch(() => {});
+}
 
 export function saveLastTrace(tracePath: string): void {
-  try { localStorage.setItem(LAST_TRACE_KEY, tracePath); } catch {}
+  fetch("/save-last-trace", {
+    method: "POST",
+    body: tracePath,
+  }).catch(() => {});
 }
 
-export function getLastTrace(): string | null {
-  try { return localStorage.getItem(LAST_TRACE_KEY); } catch { return null; }
+export async function getLastTrace(): Promise<string | null> {
+  try {
+    const res = await fetch("/get-last-trace", { cache: "no-store" });
+    if (res.ok) return (await res.text()).trim() || null;
+  } catch {}
+  return null;
 }

@@ -30,8 +30,8 @@ dropZone.addEventListener("drop", e => {
 fileInputDrop.addEventListener("change", () => { if (fileInputDrop.files?.length) loadFile(fileInputDrop.files[0]); });
 fileInput.addEventListener("change", () => { if (fileInput.files?.length) loadFile(fileInput.files[0]); });
 
-document.getElementById("reset-layout-btn")!.addEventListener("click", () => {
-  resetConfig();
+document.getElementById("reset-layout-btn")!.addEventListener("click", async () => {
+  await resetConfig();
   updateExcludeBtn();
   updatePinRootBtn();
   updateEntrypointBtn();
@@ -48,7 +48,11 @@ showIsolated.addEventListener("change", render);
 window.addEventListener("resize", scheduleEdgeLayout);
 window.addEventListener("scroll", scheduleEdgeLayout, true);
 
-const traceParam = new URLSearchParams(window.location.search).get("trace") || getLastTrace();
+const traceParam = new URLSearchParams(window.location.search).get("trace");
 if (traceParam) {
   loadFromUrl("/" + traceParam);
+} else {
+  getLastTrace().then(last => {
+    if (last) loadFromUrl("/" + last);
+  });
 }

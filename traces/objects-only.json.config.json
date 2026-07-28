@@ -1,0 +1,27 @@
+{
+  "collapsed": [],
+  "excluded": [
+    "IrOpImpl",
+    "_PlaceholderModuleAttr",
+    "OmniSerde",
+    "TrackingArgumentParser",
+    "TrackingGroup",
+    "omni_run_server_worker.<locals>._TimestampMiddleware"
+  ],
+  "pinnedRoots": [
+    "fastapi.applications.FastAPI",
+    "AsyncOmni",
+    "janus.Queue"
+  ],
+  "entrypoints": [
+    "ServingRealtimeRobotOpenPI",
+    "fastapi.applications.FastAPI"
+  ],
+  "rootRows": [
+    ["85889-189040", "85889-189730"],
+    ["85889-21679"],
+    ["85889-21903", "85889-21906", "85889-21909"],
+    ["85889-22041"],
+    ["85889-188983"]
+  ]
+}

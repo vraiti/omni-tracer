@@ -9,9 +9,9 @@ export function initLoader(): void {
   loadingEl = document.getElementById("loading")!;
 }
 
-function applyTrace(raw: Record<string, unknown>, tracePath: string): void {
+async function applyTrace(raw: Record<string, unknown>, tracePath: string): Promise<void> {
   setTraceData((raw.objects || {}) as TraceData);
-  loadConfig();
+  await loadConfig(tracePath);
   updateExcludeBtn();
   updatePinRootBtn();
   updateEntrypointBtn();
@@ -25,9 +25,9 @@ export function loadFile(file: File): void {
   setTraceFileName(file.name);
   const reader = new FileReader();
   reader.onload = e => {
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
-        applyTrace(JSON.parse(e.target!.result as string), "traces/" + file.name);
+        await applyTrace(JSON.parse(e.target!.result as string), "traces/" + file.name);
       } catch (err) {
         alert("Failed to parse JSON: " + (err as Error).message);
       }
@@ -43,8 +43,8 @@ export function loadFromUrl(url: string): void {
   fetch(url, { cache: "no-store" }).then(r => {
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
-  }).then(raw => {
-    applyTrace(raw, url.replace(/^\//, ""));
+  }).then(async raw => {
+    await applyTrace(raw, url.replace(/^\//, ""));
     loadingEl.style.display = "none";
   }).catch(() => {
     loadingEl.style.display = "none";
