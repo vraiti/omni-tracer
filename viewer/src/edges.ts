@@ -220,7 +220,7 @@ function initDragDrop(): void {
   let activeContainer: HTMLElement | null = null;
   let scrollRaf = 0;
 
-  const SCROLL_ZONE = 60;
+  const SCROLL_ZONE = 150;
   const SCROLL_SPEED = 12;
 
   function autoScroll(clientY: number): void {
