@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import atexit
 import json
 import multiprocessing
 import multiprocessing.process
 import os
-import signal
 from typing import Any
 
 from omni_tracer.core.graph import TraceGraph
@@ -86,24 +86,18 @@ class _TracedTarget:
             path_filter.track_class(cls_name)
         trace_hook = TraceHook(local_graph, path_filter)
 
-        def _sigterm_handler(signum, frame):
+        def _write_trace():
             trace_hook.uninstall()
             try:
                 with open(output_file, "w") as f:
                     json.dump(local_graph.to_dict(), f)
             except Exception:
                 pass
-            raise SystemExit(0)
 
-        signal.signal(signal.SIGTERM, _sigterm_handler)
+        atexit.register(_write_trace)
 
         trace_hook.install()
         try:
             return self.original_target(*args, **kwargs)
         finally:
-            trace_hook.uninstall()
-            try:
-                with open(output_file, "w") as f:
-                    json.dump(local_graph.to_dict(), f)
-            except Exception:
-                pass
+            _write_trace()
