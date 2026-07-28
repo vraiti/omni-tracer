@@ -712,17 +712,19 @@ function drawEdges(): void {
     return 0;
   }
 
-  // Channel allocator: parallel segments maintain margin only when Y/X ranges overlap
-  const usedChannelY: { y: number; xMin: number; xMax: number }[] = [];
+  // Channel allocator: horizontal segments bucketed by the row gap they follow
+  const usedChannelYByGap = new Map<number, { y: number; xMin: number; xMax: number }[]>();
   const usedChannelX: { x: number; yMin: number; yMax: number }[] = [];
   const ROOT_MARGIN = 20;
 
-  function allocateChannelY(preferredY: number, xMin: number, xMax: number): number {
+  function allocateChannelY(preferredY: number, xMin: number, xMax: number, gapRow: number): number {
+    if (!usedChannelYByGap.has(gapRow)) usedChannelYByGap.set(gapRow, []);
+    const bucket = usedChannelYByGap.get(gapRow)!;
     let y = Math.round(preferredY);
     const lo = Math.min(xMin, xMax);
     const hi = Math.max(xMin, xMax);
-    while (usedChannelY.some(c => c.y === y && c.xMax > lo && c.xMin < hi)) y += CHANNEL_SPACING;
-    usedChannelY.push({ y, xMin: lo, xMax: hi });
+    while (bucket.some(c => c.y === y && c.xMax > lo && c.xMin < hi)) y += CHANNEL_SPACING;
+    bucket.push({ y, xMin: lo, xMax: hi });
     return y;
   }
 
@@ -766,7 +768,8 @@ function drawEdges(): void {
 
     if (rowDelta <= 1) {
       // Single-row hop: at most 2 bends
-      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x);
+      const gapRow = Math.min(edge.srcPartition, edge.tgtPartition);
+      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x, gapRow);
       paths.push({
         pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
         targetUuid: edge.targetUuid,
@@ -774,7 +777,8 @@ function drawEdges(): void {
       });
     } else {
       // Multi-row: at most 4 bends (child → root face → horizontal → root face → child)
-      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x);
+      const gapRow = Math.min(edge.srcPartition, edge.tgtPartition);
+      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x, gapRow);
 
       // Check if horizontal segment crosses any uninvolved roots
       const minX = Math.min(start.x, end.x);
