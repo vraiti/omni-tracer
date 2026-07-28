@@ -582,7 +582,7 @@ function drawEdges(): void {
       const edgeList = faces[face];
       if (edgeList.length === 0) continue;
 
-      // Sort by opposite endpoint's X center to minimize crossings
+      // Sort by opposite endpoint's absolute X to minimize crossings at this face
       if (face === "top" || face === "bottom") {
         edgeList.sort((a, b) => {
           const otherA = (a.srcEl === el) ? a.tgtEl : a.srcEl;
@@ -677,13 +677,13 @@ function drawEdges(): void {
     return x;
   }
 
-  // Sort edges by target X so channel allocation matches inbound order, minimizing crossings
+  // Sort edges by source element absolute X so channels don't cross between source verticals
   const edgeOrder = edges.map((edge, i) => {
-    const tgtFace = resolveEdgeFace(edge.tgtEl, false, edge);
-    const end = getAnchor(edge.tgtEl, tgtFace, edge);
-    return { idx: i, endX: end.x };
+    const srcRect = elRect(edge.srcEl, hRect, scrollLeft, scrollTop);
+    const tgtRect = elRect(edge.tgtEl, hRect, scrollLeft, scrollTop);
+    return { idx: i, srcX: srcRect.x + srcRect.w / 2, tgtX: tgtRect.x + tgtRect.w / 2 };
   });
-  edgeOrder.sort((a, b) => a.endX - b.endX);
+  edgeOrder.sort((a, b) => a.srcX - b.srcX);
 
   for (const { idx: i } of edgeOrder) {
     const edge = edges[i];
