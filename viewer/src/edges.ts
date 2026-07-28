@@ -582,6 +582,17 @@ function drawEdges(): void {
       const edgeList = faces[face];
       if (edgeList.length === 0) continue;
 
+      // Sort by opposite endpoint's X center to minimize crossings
+      if (face === "top" || face === "bottom") {
+        edgeList.sort((a, b) => {
+          const otherA = (a.srcEl === el) ? a.tgtEl : a.srcEl;
+          const otherB = (b.srcEl === el) ? b.tgtEl : b.srcEl;
+          const rA = elRect(otherA, hRect, scrollLeft, scrollTop);
+          const rB = elRect(otherB, hRect, scrollLeft, scrollTop);
+          return (rA.x + rA.w / 2) - (rB.x + rB.w / 2);
+        });
+      }
+
       const length = (face === "top" || face === "bottom") ? rect.w : rect.h;
       const spacing = length / (edgeList.length + 1);
       const map = new Map<RoutedEdge, number>();
