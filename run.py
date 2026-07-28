@@ -66,19 +66,19 @@ def main():
         *model["args"],
     ]
 
-    server = subprocess.Popen(cmd)
+    server = subprocess.Popen(cmd, start_new_session=True)
 
     try:
         if not poll_health(server.pid):
-            server.terminate()
+            os.killpg(server.pid, signal.SIGTERM)
             server.wait()
             sys.exit(1)
 
-        print(f"Sending SIGTERM to server (pid {server.pid})")
-        server.send_signal(signal.SIGTERM)
+        print(f"Sending SIGTERM to process group (pgid {server.pid})")
+        os.killpg(server.pid, signal.SIGTERM)
         server.wait()
     except KeyboardInterrupt:
-        server.terminate()
+        os.killpg(server.pid, signal.SIGTERM)
         server.wait()
         sys.exit(1)
 
