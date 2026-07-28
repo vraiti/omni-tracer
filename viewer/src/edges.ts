@@ -289,10 +289,16 @@ function barycenterSort(
 
 type RefDir = "up" | "down" | "none" | "mixed";
 
+interface IncomingRef {
+  srcPart: number;
+  srcXCenter: number;
+}
+
 interface RootMaps {
   yByUuid: Record<string, number>;
   xByUuid: Record<string, number>;
   partByUuid: Record<string, number>;
+  incomingByUuid: Record<string, IncomingRef[]>;
 }
 
 function rearrangeChildren(): void {
@@ -300,7 +306,7 @@ function rearrangeChildren(): void {
     ":scope > .process-box > .process-children > .obj-box"
   ) as NodeListOf<HTMLElement>;
 
-  const maps: RootMaps = { yByUuid: {}, xByUuid: {}, partByUuid: {} };
+  const maps: RootMaps = { yByUuid: {}, xByUuid: {}, partByUuid: {}, incomingByUuid: {} };
   for (const rb of rootBoxes) {
     const y = rb.offsetTop;
     const xCenter = rb.offsetLeft + rb.offsetWidth / 2;
@@ -318,6 +324,28 @@ function rearrangeChildren(): void {
         maps.partByUuid[inner.dataset.uuid] = part;
       }
     }
+  }
+
+  const rootElToInfo = new Map<HTMLElement, { part: number; xCenter: number }>();
+  for (const rb of rootBoxes) {
+    rootElToInfo.set(rb, {
+      part: parseInt(rb.dataset.row || "0", 10),
+      xCenter: rb.offsetLeft + rb.offsetWidth / 2,
+    });
+  }
+  for (const refEl of hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]") as NodeListOf<HTMLElement>) {
+    const tid = refEl.dataset.refTarget;
+    if (!tid) continue;
+    const srcRoot = findRootBox(refEl);
+    const tgtEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${tid}"]`);
+    if (!tgtEl) continue;
+    const tgtRoot = findRootBox(tgtEl);
+    if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
+    const srcInfo = rootElToInfo.get(srcRoot);
+    const tgtInfo = rootElToInfo.get(tgtRoot);
+    if (!srcInfo || !tgtInfo || Math.abs(srcInfo.part - tgtInfo.part) <= 1) continue;
+    if (!maps.incomingByUuid[tid]) maps.incomingByUuid[tid] = [];
+    maps.incomingByUuid[tid].push({ srcPart: srcInfo.part, srcXCenter: srcInfo.xCenter });
   }
 
   for (const rb of rootBoxes) {
@@ -372,7 +400,25 @@ function sortLevel(
       let vDir: VDir = "mid";
       if (result.dir === "up") vDir = "up";
       else if (result.dir === "down") vDir = "down";
-      classified.push({ el: child, dir: result.dir, vDir, hDir: result.hDir });
+      let hDir = result.hDir;
+      const boxUuid = child.dataset.uuid;
+      const incoming = boxUuid ? maps.incomingByUuid[boxUuid] : undefined;
+      if (incoming && incoming.length > 0) {
+        if (vDir === "mid") {
+          const hasAbove = incoming.some(r => r.srcPart < srcPart);
+          const hasBelow = incoming.some(r => r.srcPart > srcPart);
+          if (hasAbove && !hasBelow) vDir = "up";
+          else if (hasBelow && !hasAbove) vDir = "down";
+        }
+        if (hDir === "center") {
+          const avgX = incoming.reduce((s, r) => s + r.srcXCenter, 0) / incoming.length;
+          if (srcXCenter > avgX) { hDir = "right"; rightCount++; }
+          else if (srcXCenter < avgX) { hDir = "left"; leftCount++; }
+          else if (leftCount <= rightCount) { hDir = "left"; leftCount++; }
+          else { hDir = "right"; rightCount++; }
+        }
+      }
+      classified.push({ el: child, dir: result.dir, vDir, hDir });
     } else {
       classified.push({ el: child, dir: "none", vDir: "mid", hDir: "center" });
     }
