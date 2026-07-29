@@ -1147,33 +1147,20 @@ function drawPaths(paths: EdgePath[]): void {
       const rA = elRect(elA, hRect, scrollLeft, scrollTop);
       const rB = elRect(elB, hRect, scrollLeft, scrollTop);
       const cxA = rA.x + rA.w / 2;
-      const cyA = rA.y + rA.h / 2;
       const cxB = rB.x + rB.w / 2;
-      const cyB = rB.y + rB.h / 2;
 
-      const dx = Math.abs(cxA - cxB);
-      const dy = Math.abs(cyA - cyB);
-      const pts: Point[] = [];
+      const faceA = elA.dataset.face as AnchorFace | undefined;
+      const faceB = elB.dataset.face as AnchorFace | undefined;
 
-      if (dy >= dx) {
-        const aAbove = cyA < cyB;
-        const startY = aAbove ? rA.y + rA.h : rA.y;
-        const endY = aAbove ? rB.y : rB.y + rB.h;
-        const midY = (startY + endY) / 2;
-        pts.push({ x: cxA, y: startY });
-        pts.push({ x: cxA, y: midY });
-        pts.push({ x: cxB, y: midY });
-        pts.push({ x: cxB, y: endY });
-      } else {
-        const aLeft = cxA < cxB;
-        const startX = aLeft ? rA.x + rA.w : rA.x;
-        const endX = aLeft ? rB.x : rB.x + rB.w;
-        const midX = (startX + endX) / 2;
-        pts.push({ x: startX, y: cyA });
-        pts.push({ x: midX, y: cyA });
-        pts.push({ x: midX, y: cyB });
-        pts.push({ x: endX, y: cyB });
-      }
+      const startY = faceA === "top" ? rA.y : rA.y + rA.h;
+      const endY = faceB === "top" ? rB.y : rB.y + rB.h;
+      const midY = (startY + endY) / 2;
+      const pts: Point[] = [
+        { x: cxA, y: startY },
+        { x: cxA, y: midY },
+        { x: cxB, y: midY },
+        { x: cxB, y: endY },
+      ];
 
       const d = "M" + pts.map(pt => pt.x + "," + pt.y).join(" L");
       const path = document.createElementNS(svgNs, "path");
