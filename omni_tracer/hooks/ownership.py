@@ -149,10 +149,13 @@ class OwnershipHook:
         if not hasattr(MessageQueue, "_tracer_orig_enqueue"):
             MessageQueue._tracer_orig_enqueue = MessageQueue.enqueue
             MessageQueue._tracer_orig_dequeue = MessageQueue.dequeue
+            MessageQueue._tracer_orig_create_from_handle = MessageQueue.create_from_handle
 
         original_enqueue = MessageQueue._tracer_orig_enqueue
         original_dequeue = MessageQueue._tracer_orig_dequeue
+        original_create = MessageQueue._tracer_orig_create_from_handle
         graph = self.graph
+        path_filter = self.path_filter
 
         def _get_queue_id(self_q: Any) -> str | None:
             qid = getattr(self_q, "_tracer_queue_id", None)
@@ -188,5 +191,17 @@ class OwnershipHook:
                 return obj
             return result
 
+        def _traced_create_from_handle(handle: Any, rank: Any) -> Any:
+            mq = original_create(handle, rank)
+            try:
+                source_file = inspect.getfile(MessageQueue)
+            except (TypeError, OSError):
+                source_file = "<unknown>"
+            ref = f"{source_file}:{MessageQueue.__qualname__}"
+            graph.record_instantiation(ref, id(mq))
+            self.patch_class(MessageQueue)
+            return mq
+
         MessageQueue.enqueue = _traced_enqueue
         MessageQueue.dequeue = _traced_dequeue
+        MessageQueue.create_from_handle = staticmethod(_traced_create_from_handle)
