@@ -56,7 +56,7 @@ class TraceHook:
     ) -> None:
         self.graph = graph
         self.path_filter = path_filter
-        self.ownership = OwnershipHook(graph, path_filter)
+        self.ownership = OwnershipHook(graph, path_filter, capture_value_flow=capture_value_flow)
         self.enabled = True
         self._capture_specs = capture_specs or []
         self._capture_only = capture_only

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import inspect
 import itertools
+from collections import deque
 from typing import Any
 
 from omni_tracer.core.graph import TraceGraph
 from omni_tracer.filters import PathFilter
+from omni_tracer.hooks.traced_containers import _TracedContainerMixin, wrap_container
 
 _PRIMITIVE_TYPES = (str, int, float, bool, type(None))
 _MQ_TRACER_TAG = "##__omni_tracer_mq__##"
@@ -18,9 +20,10 @@ def _safe_repr(obj: object) -> str:
 
 
 class OwnershipHook:
-    def __init__(self, graph: TraceGraph, path_filter: PathFilter) -> None:
+    def __init__(self, graph: TraceGraph, path_filter: PathFilter, capture_value_flow: bool = False) -> None:
         self.graph = graph
         self.path_filter = path_filter
+        self.capture_value_flow = capture_value_flow
         self._patched_classes: set[int] = set()
         self._module_hook_handle = None
 
@@ -72,6 +75,7 @@ class OwnershipHook:
 
         original_setattr = cls.__setattr__
         graph = self.graph
+        hook = self
 
         def _traced_setattr(self_obj: Any, name: str, value: Any) -> None:
             original_setattr(self_obj, name, value)
@@ -95,6 +99,14 @@ class OwnershipHook:
                 graph.record_attr(id(self_obj), name, "None")
             elif owned_id is None:
                 graph.record_attr(id(self_obj), name, type(value).__qualname__)
+
+            if hook.capture_value_flow and isinstance(value, (dict, list, deque, set)) and not isinstance(value, _TracedContainerMixin):
+                obj_node_id = graph.get_object_id(id(self_obj))
+                if obj_node_id is not None:
+                    queue_id = f"container-{obj_node_id}.{name}"
+                    wrapped = wrap_container(value, graph, queue_id)
+                    if wrapped is not None:
+                        original_setattr(self_obj, name, wrapped)
 
         try:
             cls.__setattr__ = _traced_setattr
