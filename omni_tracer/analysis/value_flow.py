@@ -101,6 +101,7 @@ def _resolve_arg_flows(
     call_site = _find_call_site(parent_flow, child_node) if parent_flow else None
 
     param_names = list(child_arg_ids.keys()) or list(child_arg_values.keys())
+    has_self = len(param_names) > 0 and param_names[0] == "self"
     for i, param_name in enumerate(param_names):
         arg_id = child_arg_ids.get(param_name)
         arg_repr = child_arg_values.get(param_name)
@@ -108,8 +109,9 @@ def _resolve_arg_flows(
 
         source_name = ""
         if call_site:
-            if i < len(call_site.arg_exprs):
-                source_name = call_site.arg_exprs[i]
+            call_idx = (i - 1) if has_self else i
+            if call_idx >= 0 and call_idx < len(call_site.arg_exprs):
+                source_name = call_site.arg_exprs[call_idx]
             elif param_name in call_site.kwarg_exprs:
                 source_name = call_site.kwarg_exprs[param_name]
 
