@@ -12,6 +12,8 @@ export let effectiveParentMap: EffectiveParentMap = {};
 export let rootOrder: Record<string, number> = {};
 export let functionData: FunctionData | null = null;
 export let objectMethods: Record<string, FuncCallNode[]> = {};
+export let rootFuncId: string | null = null;
+export let funcIndex: import("./functions").FuncIndexEntry[] = [];
 export let ownershipOverrides: Record<string, string> = {};
 
 export function setTraceData(data: TraceData) { traceData = data; }
@@ -22,6 +24,8 @@ export function setCreationOrder(co: CreationOrder) { creationOrder = co; }
 export function setEffectiveParentMap(ep: EffectiveParentMap) { effectiveParentMap = ep; }
 export function setFunctionData(fd: FunctionData | null) { functionData = fd; }
 export function setObjectMethods(om: Record<string, FuncCallNode[]>) { objectMethods = om; }
+export function setRootFuncId(id: string | null) { rootFuncId = id; }
+export function setFuncIndex(idx: import("./functions").FuncIndexEntry[]) { funcIndex = idx; }
 export function markRendered(uuid: string) { rendered[uuid] = true; }
 export function isRendered(uuid: string): boolean { return !!rendered[uuid]; }
 
@@ -48,6 +52,8 @@ function clearState(): void {
   rootOrder = {};
   functionData = null;
   objectMethods = {};
+  rootFuncId = null;
+  funcIndex = [];
   ownershipOverrides = {};
 }
 

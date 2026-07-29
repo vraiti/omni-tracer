@@ -1,6 +1,7 @@
-import { traceData, excludedClasses, pinnedRootClasses, rootOrder, saveConfig } from "./state";
+import { traceData, excludedClasses, pinnedRootClasses, rootOrder, functionData, rootFuncId, funcIndex, setRootFuncId, setObjectMethods, saveConfig } from "./state";
 import { getClassName } from "./graph";
 import { render, buildAndRender } from "./render";
+import { buildObjectMethods, getFuncName } from "./functions";
 
 let excludeBtn: HTMLElement;
 let excludePanel: HTMLElement;
@@ -14,6 +15,10 @@ let rootOrderBtn: HTMLElement;
 let rootOrderPanel: HTMLElement;
 let rootOrderFilter: HTMLInputElement;
 let rootOrderList: HTMLElement;
+let callChainBtn: HTMLElement;
+let callChainPanel: HTMLElement;
+let callChainFilter: HTMLInputElement;
+let callChainList: HTMLElement;
 
 export function initPanels(): void {
   excludeBtn = document.getElementById("exclude-btn")!;
@@ -75,6 +80,29 @@ export function initPanels(): void {
 
   rootOrderFilter.addEventListener("click", e => e.stopPropagation());
   rootOrderFilter.addEventListener("input", () => populateRootOrderPanel());
+
+  callChainBtn = document.getElementById("call-chain-btn")!;
+  callChainPanel = document.getElementById("call-chain-panel")!;
+  callChainFilter = document.getElementById("call-chain-filter") as HTMLInputElement;
+  callChainList = document.getElementById("call-chain-list")!;
+
+  callChainBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    callChainPanel.classList.toggle("hidden");
+    if (!callChainPanel.classList.contains("hidden")) {
+      populateCallChainPanel();
+      callChainFilter.focus();
+    }
+  });
+
+  callChainFilter.addEventListener("click", e => e.stopPropagation());
+  callChainFilter.addEventListener("input", () => populateCallChainPanel());
+
+  document.addEventListener("click", e => {
+    if (!callChainPanel.contains(e.target as Node) && e.target !== callChainBtn) {
+      callChainPanel.classList.add("hidden");
+    }
+  });
 }
 
 function getClassCounts(): Record<string, number> {
@@ -232,6 +260,70 @@ function populateRootOrderPanel(): void {
     row.appendChild(text);
     row.appendChild(badge);
     rootOrderList.appendChild(row);
+  }
+}
+
+export function updateCallChainBtn(): void {
+  if (rootFuncId && functionData?.[rootFuncId]) {
+    const name = getFuncName(functionData[rootFuncId].ref);
+    callChainBtn.textContent = `Call chain: ${name} ▾`;
+  } else {
+    callChainBtn.textContent = "Call chain ▾";
+  }
+}
+
+function selectCallChain(fid: string | null): void {
+  setRootFuncId(fid);
+  if (functionData) {
+    setObjectMethods(buildObjectMethods(functionData, fid));
+  }
+  updateCallChainBtn();
+  callChainPanel.classList.add("hidden");
+  buildAndRender();
+}
+
+function populateCallChainPanel(): void {
+  const index = funcIndex;
+  const search = callChainFilter.value.toLowerCase();
+  const filtered = search
+    ? index.filter(e => e.label.toLowerCase().includes(search))
+    : index;
+  const limited = filtered.slice(0, 100);
+
+  callChainList.innerHTML = "";
+
+  const allRow = document.createElement("div");
+  allRow.className = "panel-row";
+  allRow.style.color = rootFuncId === null ? "#5a9" : "#d4d4d4";
+  allRow.textContent = "All (no filter)";
+  allRow.addEventListener("click", () => selectCallChain(null));
+  callChainList.appendChild(allRow);
+
+  for (const entry of limited) {
+    const row = document.createElement("div");
+    row.className = "panel-row";
+    if (entry.fid === rootFuncId) row.style.color = "#5a9";
+
+    const text = document.createElement("span");
+    text.textContent = entry.label;
+    text.style.flex = "1";
+
+    const badge = document.createElement("span");
+    badge.textContent = String(entry.descendantCount);
+    badge.className = "badge";
+
+    row.appendChild(text);
+    row.appendChild(badge);
+    row.addEventListener("click", () => selectCallChain(entry.fid));
+    callChainList.appendChild(row);
+  }
+
+  if (limited.length < filtered.length) {
+    const more = document.createElement("div");
+    more.className = "panel-row";
+    more.style.color = "#666";
+    more.textContent = `... ${filtered.length - limited.length} more`;
+    callChainList.appendChild(more);
   }
 }
 

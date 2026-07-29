@@ -1,8 +1,8 @@
 import type { TraceData, FunctionData } from "./types";
-import { setTraceData, setTraceFileName, setFunctionData, setObjectMethods, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
+import { setTraceData, setTraceFileName, setFunctionData, setObjectMethods, setFuncIndex, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
 import { buildAndRender } from "./render";
-import { updateExcludeBtn, updatePinRootBtn, updateRootOrderBtn } from "./panels";
-import { buildObjectMethods } from "./functions";
+import { updateExcludeBtn, updatePinRootBtn, updateRootOrderBtn, updateCallChainBtn } from "./panels";
+import { buildObjectMethods, buildFuncIndex } from "./functions";
 
 let loadingEl: HTMLElement;
 
@@ -14,12 +14,14 @@ async function applyTrace(raw: Record<string, unknown>, tracePath: string): Prom
   setTraceData((raw.objects || {}) as TraceData);
   const funcs = (raw.functions || {}) as FunctionData;
   setFunctionData(funcs);
-  setObjectMethods(buildObjectMethods(funcs));
+  setObjectMethods(buildObjectMethods(funcs, null));
+  setFuncIndex(buildFuncIndex(funcs, (raw.objects || {}) as TraceData));
   await loadConfig(tracePath);
   applyOwnershipOverrides();
   updateExcludeBtn();
   updatePinRootBtn();
   updateRootOrderBtn();
+  updateCallChainBtn();
   buildAndRender();
   history.replaceState(null, "", "/?trace=" + tracePath);
   saveLastTrace(tracePath);

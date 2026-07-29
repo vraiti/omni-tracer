@@ -8,9 +8,77 @@ export function getFuncName(ref: string): string {
   return dot >= 0 ? last.slice(dot + 1) : last;
 }
 
+function getFuncLabel(ref: string, boundTo: string | undefined, objects: Record<string, { ref: string }> | null): string {
+  const name = getFuncName(ref);
+  if (boundTo && objects?.[boundTo]) {
+    const cls = objects[boundTo].ref;
+    const shortCls = cls.includes(":") ? cls.split(":").pop()! : cls.split(".").pop()!;
+    const dot = shortCls.lastIndexOf(".");
+    return (dot >= 0 ? shortCls.slice(dot + 1) : shortCls) + "." + name;
+  }
+  const file = ref.includes("/") ? ref.split(":")[0].split("/").pop()! : "";
+  return file ? file + ":" + name : name;
+}
+
+export interface FuncIndexEntry {
+  fid: string;
+  label: string;
+  descendantCount: number;
+}
+
+export function buildFuncIndex(
+  functions: FunctionData,
+  objects: Record<string, { ref: string }> | null,
+): FuncIndexEntry[] {
+  const entries: FuncIndexEntry[] = [];
+  for (const [fid, fn] of Object.entries(functions)) {
+    if (fn.invokes.length === 0) continue;
+    entries.push({
+      fid,
+      label: getFuncLabel(fn.ref, fn.bound_to, objects),
+      descendantCount: countDescendants(fid, functions),
+    });
+  }
+  entries.sort((a, b) => b.descendantCount - a.descendantCount);
+  return entries;
+}
+
+function countDescendants(fid: string, functions: FunctionData): number {
+  const seen = new Set<string>();
+  const stack = [fid];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    const fn = functions[cur];
+    if (fn) {
+      for (const child of fn.invokes) stack.push(child);
+    }
+  }
+  return seen.size - 1;
+}
+
+function collectReachable(rootId: string, functions: FunctionData): Set<string> {
+  const reachable = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (reachable.has(cur)) continue;
+    reachable.add(cur);
+    const fn = functions[cur];
+    if (fn) {
+      for (const child of fn.invokes) stack.push(child);
+    }
+  }
+  return reachable;
+}
+
 export function buildObjectMethods(
   functions: FunctionData,
+  rootFuncId: string | null,
 ): Record<string, FuncCallNode[]> {
+  const reachable = rootFuncId ? collectReachable(rootFuncId, functions) : null;
+
   const callerOf = new Map<string, string>();
   for (const [fid, fn] of Object.entries(functions)) {
     for (const child of fn.invokes) {
@@ -21,6 +89,7 @@ export function buildObjectMethods(
   const entryPoints = new Map<string, string[]>();
   for (const [fid, fn] of Object.entries(functions)) {
     if (!fn.bound_to) continue;
+    if (reachable && !reachable.has(fid)) continue;
     const callerId = callerOf.get(fid);
     const callerBoundTo = callerId ? functions[callerId]?.bound_to : undefined;
     if (callerBoundTo === fn.bound_to) continue;
