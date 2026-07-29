@@ -995,9 +995,13 @@ function drawEdges(): Map<number, number> {
         id: "edge_" + i,
       });
     } else {
-      // Multi-row: at most 4 bends (child → root face → horizontal → root face → child)
-      const gapRow = Math.min(edge.srcPartition, edge.tgtPartition);
-      const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x, gapRow);
+      // Multi-row: place horizontal channel in the gap just above the destination row
+      const upperPart = Math.min(edge.srcPartition, edge.tgtPartition);
+      const lowerPart = Math.max(edge.srcPartition, edge.tgtPartition);
+      const inboundGap = lowerPart - 1;
+      const gapRow = Math.max(upperPart, inboundGap);
+      const preferredY = gapCenterY(gapRow, gapRow + 1);
+      const midY = allocateChannelY(preferredY, start.x, end.x, gapRow);
 
       // Check if horizontal segment crosses any uninvolved roots
       const minX = Math.min(start.x, end.x);
@@ -1033,7 +1037,7 @@ function drawEdges(): Map<number, number> {
         const distRight = allRight - start.x + allRight - end.x;
         const channelX = allocateChannelX(
           distLeft < distRight ? allLeft - ROOT_MARGIN : allRight + ROOT_MARGIN,
-          srcRootFaceY, tgtRootFaceY
+          srcRootFaceY, midY
         );
 
         paths.push({
@@ -1041,8 +1045,8 @@ function drawEdges(): Map<number, number> {
             start,
             { x: start.x, y: srcRootFaceY },
             { x: channelX, y: srcRootFaceY },
-            { x: channelX, y: tgtRootFaceY },
-            { x: end.x, y: tgtRootFaceY },
+            { x: channelX, y: midY },
+            { x: end.x, y: midY },
             end,
           ],
           targetUuid: edge.targetUuid,
