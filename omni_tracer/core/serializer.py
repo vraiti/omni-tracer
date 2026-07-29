@@ -48,7 +48,7 @@ def _find_code_object(ref: str):
         return None
     qualname = parts[1]
     import sys
-    for mod in sys.modules.values():
+    for mod in list(sys.modules.values()):
         if mod is None:
             continue
         obj = _resolve_qualname(mod, qualname)
