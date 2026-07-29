@@ -7,25 +7,18 @@ function configSavePlugin(): Plugin {
   return {
     name: "config-save",
     configureServer(server) {
+      const configPath = path.join(tracesDir, "config.json");
+
       server.middlewares.use("/save-config", (req, res) => {
         if (req.method !== "POST") {
           res.statusCode = 405;
           res.end();
           return;
         }
-        const url = new URL(req.url || "", "http://localhost");
-        const trace = url.searchParams.get("trace");
-        if (!trace || trace.includes("..")) {
-          res.statusCode = 400;
-          res.end();
-          return;
-        }
         let body = "";
         req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
         req.on("end", () => {
-          const filePath = path.join(tracesDir, trace + ".config.json");
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          fs.writeFileSync(filePath, body, "utf-8");
+          fs.writeFileSync(configPath, body, "utf-8");
           res.statusCode = 200;
           res.end();
         });
@@ -37,17 +30,20 @@ function configSavePlugin(): Plugin {
           res.end();
           return;
         }
-        const url = new URL(req.url || "", "http://localhost");
-        const trace = url.searchParams.get("trace");
-        if (!trace || trace.includes("..")) {
-          res.statusCode = 400;
-          res.end();
-          return;
-        }
-        const filePath = path.join(tracesDir, trace + ".config.json");
-        try { fs.unlinkSync(filePath); } catch {}
+        try { fs.unlinkSync(configPath); } catch {}
         res.statusCode = 200;
         res.end();
+      });
+
+      server.middlewares.use("/config.json", (_req, res) => {
+        try {
+          const data = fs.readFileSync(configPath, "utf-8");
+          res.setHeader("Content-Type", "application/json");
+          res.end(data);
+        } catch {
+          res.statusCode = 404;
+          res.end();
+        }
       });
 
       server.middlewares.use("/save-last-trace", (req, res) => {

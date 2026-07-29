@@ -12,8 +12,6 @@ export let effectiveParentMap: EffectiveParentMap = {};
 export let rootRows: string[][] = [];
 export let ownershipOverrides: Record<string, string> = {};
 
-let currentTracePath: string | null = null;
-
 export function setTraceData(data: TraceData) { traceData = data; }
 export function setTraceFileName(name: string) { traceFileName = name; }
 export function setParentMap(pm: ParentMap) { parentMap = pm; }
@@ -48,10 +46,9 @@ function clearState(): void {
   ownershipOverrides = {};
 }
 
-export async function loadConfig(tracePath: string): Promise<void> {
-  currentTracePath = tracePath;
+export async function loadConfig(_tracePath: string): Promise<void> {
   try {
-    const res = await fetch("/" + tracePath + ".config.json", { cache: "no-store" });
+    const res = await fetch("/config.json", { cache: "no-store" });
     if (res.ok) {
       applyConfig(await res.json());
       return;
@@ -68,7 +65,6 @@ export function applyOwnershipOverrides(): void {
 }
 
 export function saveConfig(): void {
-  if (!currentTracePath) return;
   const cfg: Config = {
     collapsed: Array.from(collapsedSet),
     excluded: Array.from(excludedClasses),
@@ -76,7 +72,7 @@ export function saveConfig(): void {
     rootRows,
     ownershipOverrides,
   };
-  fetch("/save-config?trace=" + encodeURIComponent(currentTracePath), {
+  fetch("/save-config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cfg, null, 2),
@@ -85,8 +81,7 @@ export function saveConfig(): void {
 
 export async function resetConfig(): Promise<void> {
   clearState();
-  if (!currentTracePath) return;
-  fetch("/delete-config?trace=" + encodeURIComponent(currentTracePath), {
+  fetch("/delete-config", {
     method: "POST",
   }).catch(() => {});
 }
