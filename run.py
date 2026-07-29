@@ -71,7 +71,6 @@ def main():
         sys.executable, "-m", "omni_tracer",
         "-o", output,
         "--track-file", track_file,
-        "--capture-args", "SpinCondition.__init__:notify_address",
         "--value-flow",
         "--",
         "serve", args.model, "--omni",
