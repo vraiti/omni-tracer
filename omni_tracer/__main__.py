@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import multiprocessing
 import os
+import signal
 import sys
 
 from omni_tracer.cli import parse_args
@@ -103,6 +104,13 @@ def main() -> None:
         args=(passthrough, args.output, tracked, capture_specs_raw, args.capture_only, args.value_flow),
     )
     proc.start()
+
+    def _forward_sigterm(signum, frame):
+        if proc.is_alive():
+            proc.terminate()
+
+    signal.signal(signal.SIGTERM, _forward_sigterm)
+
     proc.join()
 
     if args.value_flow and os.path.exists(args.output):

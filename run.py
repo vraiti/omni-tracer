@@ -103,11 +103,11 @@ def main():
                 except Exception as exc:
                     print(f"Query failed: {exc}", file=sys.stderr)
 
-        print(f"Sending SIGTERM to process group (pgid {server.pid})")
-        os.killpg(server.pid, signal.SIGTERM)
+        print(f"Sending SIGTERM to pid {server.pid}")
+        os.kill(server.pid, signal.SIGTERM)
         server.wait()
     except KeyboardInterrupt:
-        os.killpg(server.pid, signal.SIGTERM)
+        os.kill(server.pid, signal.SIGTERM)
         server.wait()
         sys.exit(1)
 
