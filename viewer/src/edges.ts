@@ -339,11 +339,36 @@ function computeIpcFaces(objects: TraceData, processBoxes: NodeListOf<HTMLElemen
     const idxA = uuidToProcIdx.get(uuidA);
     const idxB = uuidToProcIdx.get(uuidB);
     if (idxA === undefined || idxB === undefined || idxA === idxB) continue;
-    result[uuidA] = idxB > idxA ? "bottom" : "top";
-    result[uuidB] = idxA > idxB ? "bottom" : "top";
+    const faceA: AnchorFace = idxB > idxA ? "bottom" : "top";
+    const faceB: AnchorFace = idxA > idxB ? "bottom" : "top";
+    result[uuidA] = faceA;
+    result[uuidB] = faceB;
+    propagateToAncestors(uuidA, faceA, processBoxes, result);
+    propagateToAncestors(uuidB, faceB, processBoxes, result);
   }
 
   return result;
+}
+
+function propagateToAncestors(
+  uuid: string, face: AnchorFace,
+  processBoxes: NodeListOf<HTMLElement>,
+  result: Record<string, AnchorFace>,
+): void {
+  const el = document.querySelector(`.obj-box[data-uuid="${uuid}"]`);
+  if (!el) return;
+  let node = el.parentElement?.closest(".obj-box") as HTMLElement | null;
+  while (node) {
+    const parentUuid = node.dataset.uuid;
+    if (!parentUuid) break;
+    let isRoot = false;
+    for (const pb of processBoxes) {
+      if (node.parentElement === pb.querySelector(".process-children")) { isRoot = true; break; }
+    }
+    if (isRoot) break;
+    if (!(parentUuid in result)) result[parentUuid] = face;
+    node = node.parentElement?.closest(".obj-box") as HTMLElement | null;
+  }
 }
 
 function rearrangeChildren(container: HTMLElement, ipcFaces: Record<string, AnchorFace>): void {
