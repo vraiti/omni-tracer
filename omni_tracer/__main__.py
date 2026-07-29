@@ -9,6 +9,24 @@ import sys
 from omni_tracer.cli import parse_args
 
 
+def _merge_subprocess_traces(graph: object, output_dir: str, main_output: str) -> None:
+    import json
+    from pathlib import Path
+    from omni_tracer.core.graph import TraceGraph
+
+    main_path = Path(main_output).resolve()
+    for child in sorted(Path(output_dir).glob("*.json")):
+        if child.resolve() == main_path:
+            continue
+        try:
+            with open(child) as f:
+                data = json.load(f)
+            sub_graph = TraceGraph.from_dict(data)
+            graph.merge(sub_graph)
+        except Exception:
+            pass
+
+
 def _parse_capture_spec(raw: str) -> dict:
     """Parse 'func_pattern:arg1.attr,arg2.attr2' into a serializable dict.
 
@@ -53,7 +71,7 @@ def _traced_server(
         path_filter.track_class(cls_name)
     trace_hook = TraceHook(graph, path_filter, capture_specs=capture_specs, capture_only=capture_only, capture_value_flow=capture_value_flow)
     thread_hook = ThreadHook(trace_hook._global_trace)
-    process_hook = ProcessHook(output_dir, tracked_classes, capture_specs_raw=capture_specs_raw, capture_only=capture_only)
+    process_hook = ProcessHook(output_dir, tracked_classes, capture_specs_raw=capture_specs_raw, capture_only=capture_only, capture_value_flow=capture_value_flow)
 
     _written = False
 
@@ -65,9 +83,9 @@ def _traced_server(
         trace_hook.uninstall()
         thread_hook.uninstall()
         process_hook.uninstall()
+        _merge_subprocess_traces(graph, output_dir, output_file)
         serialize(graph, output_file)
         print(f"Trace written to {output_file}")
-        print(f"Subprocess traces written to {output_dir}/")
 
     atexit.register(_write_trace)
 

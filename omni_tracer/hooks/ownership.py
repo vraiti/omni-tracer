@@ -138,3 +138,51 @@ class OwnershipHook:
     def init_queue_instance(self, queue_obj: Any, queue_id: str) -> None:
         queue_obj._tracer_queue_id = queue_id
         queue_obj._tracer_seq = itertools.count()
+
+    def patch_message_queue_class(self) -> None:
+        try:
+            from vllm.distributed.device_communicators.shm_broadcast import MessageQueue
+        except ImportError:
+            return
+
+        if not hasattr(MessageQueue, "_tracer_orig_enqueue"):
+            MessageQueue._tracer_orig_enqueue = MessageQueue.enqueue
+            MessageQueue._tracer_orig_dequeue = MessageQueue.dequeue
+
+        original_enqueue = MessageQueue._tracer_orig_enqueue
+        original_dequeue = MessageQueue._tracer_orig_dequeue
+        graph = self.graph
+
+        def _get_queue_id(self_q: Any) -> str | None:
+            qid = getattr(self_q, "_tracer_queue_id", None)
+            if qid is not None:
+                return qid
+            handle = getattr(self_q, "handle", None)
+            if handle is None:
+                return None
+            addr = getattr(handle, "local_subscribe_addr", None) or getattr(handle, "remote_subscribe_addr", None)
+            if addr is None:
+                return None
+            qid = f"mq-{addr}"
+            self_q._tracer_queue_id = qid
+            self_q._tracer_seq = itertools.count()
+            return qid
+
+        def _traced_enqueue(self_q: Any, obj: Any, timeout: float | None = None) -> Any:
+            result = original_enqueue(self_q, obj, timeout)
+            qid = _get_queue_id(self_q)
+            if qid is not None:
+                seq = next(self_q._tracer_seq)
+                graph.record_queue_event(qid, "put", f"{qid}-{seq}", _safe_repr(obj))
+            return result
+
+        def _traced_dequeue(self_q: Any, timeout: float | None = None, indefinite: bool = False) -> Any:
+            result = original_dequeue(self_q, timeout, indefinite)
+            qid = _get_queue_id(self_q)
+            if qid is not None:
+                seq = next(self_q._tracer_seq)
+                graph.record_queue_event(qid, "get", f"{qid}-{seq}", _safe_repr(result))
+            return result
+
+        MessageQueue.enqueue = _traced_enqueue
+        MessageQueue.dequeue = _traced_dequeue

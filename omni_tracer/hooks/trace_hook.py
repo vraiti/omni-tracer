@@ -66,6 +66,7 @@ class TraceHook:
         self.ownership.install_module_hook()
         if self._capture_value_flow:
             self.ownership.patch_queue_class()
+            self.ownership.patch_message_queue_class()
         sys.settrace(self._global_trace)
 
     def uninstall(self) -> None:
