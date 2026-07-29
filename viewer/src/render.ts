@@ -1,6 +1,7 @@
+import type { FuncCallNode } from "./types";
 import {
   traceData, parentMap, effectiveParentMap, creationOrder, collapsedSet,
-  excludedClasses, rootOrder, setRendered, markRendered, isRendered,
+  excludedClasses, rootOrder, objectMethods, setRendered, markRendered, isRendered,
   saveConfig,
   setParentMap, setCreationOrder, setEffectiveParentMap,
 } from "./state";
@@ -296,7 +297,59 @@ function renderObject(
     }
   }
 
+  const methods = objectMethods[uuid];
+  if (methods && methods.length > 0) {
+    const section = document.createElement("div");
+    section.className = "func-section";
+    for (const node of methods) {
+      section.appendChild(renderFuncNode(node, uuid));
+    }
+    box.appendChild(section);
+  }
+
   return box;
+}
+
+function renderFuncNode(node: FuncCallNode, contextObj: string): HTMLElement {
+  const isCrossObject = node.boundTo !== null && node.boundTo !== contextObj;
+
+  if (isCrossObject) {
+    const el = document.createElement("span");
+    el.className = "func-cross-ref";
+    const targetClass = traceData?.[node.boundTo!]
+      ? getClassName(traceData[node.boundTo!].ref) : "?";
+    const label = node.count > 1 ? `(${node.count}) ` : "";
+    el.textContent = `${label}→ ${targetClass}.${node.name}`;
+    el.addEventListener("click", () => {
+      const target = hierarchyEl.querySelector(`.obj-box[data-uuid="${node.boundTo}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.classList.add("group-highlight");
+        setTimeout(() => target.classList.remove("group-highlight"), 2000);
+      }
+    });
+    return el;
+  }
+
+  const el = document.createElement("div");
+  el.className = "func-node" + (node.boundTo === null ? " unbound" : "");
+
+  const label = document.createElement("span");
+  label.className = "func-name";
+  const prefix = node.count > 1 ? `(${node.count}) ` : "";
+  label.textContent = prefix + node.name;
+  el.appendChild(label);
+
+  if (node.children.length > 0) {
+    const childrenDiv = document.createElement("div");
+    childrenDiv.className = "func-children";
+    for (const child of node.children) {
+      childrenDiv.appendChild(renderFuncNode(child, contextObj));
+    }
+    el.appendChild(childrenDiv);
+  }
+
+  return el;
 }
 
 function renderRef(uuid: string, attrName?: string): HTMLElement | null {

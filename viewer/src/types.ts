@@ -26,6 +26,14 @@ export interface TraceFunction {
 
 export type FunctionData = Record<string, TraceFunction>;
 
+export interface FuncCallNode {
+  ref: string;
+  name: string;
+  count: number;
+  boundTo: string | null;
+  children: FuncCallNode[];
+}
+
 export interface Point {
   x: number;
   y: number;

@@ -1,4 +1,4 @@
-import type { TraceData, ParentMap, CreationOrder, EffectiveParentMap } from "./types";
+import type { TraceData, FunctionData, FuncCallNode, ParentMap, CreationOrder, EffectiveParentMap } from "./types";
 
 export let traceData: TraceData | null = null;
 export let traceFileName: string | null = null;
@@ -10,6 +10,8 @@ export let pinnedRootClasses = new Set<string>();
 export let creationOrder: CreationOrder = {};
 export let effectiveParentMap: EffectiveParentMap = {};
 export let rootOrder: Record<string, number> = {};
+export let functionData: FunctionData | null = null;
+export let objectMethods: Record<string, FuncCallNode[]> = {};
 export let ownershipOverrides: Record<string, string> = {};
 
 export function setTraceData(data: TraceData) { traceData = data; }
@@ -18,6 +20,8 @@ export function setParentMap(pm: ParentMap) { parentMap = pm; }
 export function setRendered(r: Record<string, boolean>) { rendered = r; }
 export function setCreationOrder(co: CreationOrder) { creationOrder = co; }
 export function setEffectiveParentMap(ep: EffectiveParentMap) { effectiveParentMap = ep; }
+export function setFunctionData(fd: FunctionData | null) { functionData = fd; }
+export function setObjectMethods(om: Record<string, FuncCallNode[]>) { objectMethods = om; }
 export function markRendered(uuid: string) { rendered[uuid] = true; }
 export function isRendered(uuid: string): boolean { return !!rendered[uuid]; }
 
@@ -42,6 +46,8 @@ function clearState(): void {
   excludedClasses = new Set();
   pinnedRootClasses = new Set();
   rootOrder = {};
+  functionData = null;
+  objectMethods = {};
   ownershipOverrides = {};
 }
 

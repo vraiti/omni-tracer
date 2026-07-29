@@ -1,7 +1,8 @@
-import type { TraceData } from "./types";
-import { setTraceData, setTraceFileName, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
+import type { TraceData, FunctionData } from "./types";
+import { setTraceData, setTraceFileName, setFunctionData, setObjectMethods, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
 import { buildAndRender } from "./render";
 import { updateExcludeBtn, updatePinRootBtn, updateRootOrderBtn } from "./panels";
+import { buildObjectMethods } from "./functions";
 
 let loadingEl: HTMLElement;
 
@@ -11,6 +12,9 @@ export function initLoader(): void {
 
 async function applyTrace(raw: Record<string, unknown>, tracePath: string): Promise<void> {
   setTraceData((raw.objects || {}) as TraceData);
+  const funcs = (raw.functions || {}) as FunctionData;
+  setFunctionData(funcs);
+  setObjectMethods(buildObjectMethods(funcs));
   await loadConfig(tracePath);
   applyOwnershipOverrides();
   updateExcludeBtn();
