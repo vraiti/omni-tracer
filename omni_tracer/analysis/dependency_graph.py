@@ -38,20 +38,36 @@ def _build_queue_adjacency(
     by_queue: dict[str, dict[str, list[str]]] = defaultdict(
         lambda: {"put": [], "get": []}
     )
+    puts_by_event_id: dict[str, str] = {}
+    gets_by_event_id: dict[str, str] = {}
+
     for ev in queue_events:
         caller = ev.get("caller")
         if caller is None:
             continue
         direction = ev.get("direction", "")
         qid = ev.get("queue_id", "")
-        if direction in ("put", "get"):
-            by_queue[qid][direction].append(caller)
+        event_id = ev.get("id", "")
+        if direction == "put":
+            by_queue[qid]["put"].append(caller)
+            if event_id:
+                puts_by_event_id[event_id] = caller
+        elif direction == "get":
+            by_queue[qid]["get"].append(caller)
+            if event_id:
+                gets_by_event_id[event_id] = caller
 
     adj: dict[str, set[str]] = defaultdict(set)
+
     for groups in by_queue.values():
         put_callers = set(groups["put"])
         get_callers = set(groups["get"])
         for pc in put_callers:
             adj[pc].update(get_callers - {pc})
+
+    for event_id, put_caller in puts_by_event_id.items():
+        get_caller = gets_by_event_id.get(event_id)
+        if get_caller and get_caller != put_caller:
+            adj[put_caller].add(get_caller)
 
     return {k: sorted(v) for k, v in adj.items() if v}
