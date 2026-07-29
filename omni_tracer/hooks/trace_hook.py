@@ -11,6 +11,33 @@ from omni_tracer.filters import ArgCaptureSpec, PathFilter
 from omni_tracer.hooks.ownership import OwnershipHook
 
 CO_COROUTINE = inspect.CO_COROUTINE
+_REPR_LIMIT = 128
+
+
+def _safe_repr(val: Any, limit: int = _REPR_LIMIT) -> str:
+    try:
+        s = repr(val)
+    except Exception:
+        s = f"<{type(val).__name__}>"
+    if len(s) > limit:
+        return s[:limit - 3] + "..."
+    return s
+
+
+def _capture_arg_ids_values(
+    frame: types.FrameType, code: types.CodeType,
+) -> tuple[dict[str, int], dict[str, str]]:
+    arg_ids: dict[str, int] = {}
+    arg_values: dict[str, str] = {}
+    argcount = code.co_argcount
+    varnames = code.co_varnames[:argcount]
+    locals_ = frame.f_locals
+    for name in varnames:
+        val = locals_.get(name)
+        if val is not None:
+            arg_ids[name] = id(val)
+            arg_values[name] = _safe_repr(val)
+    return arg_ids, arg_values
 
 
 class TraceHook:
@@ -59,10 +86,20 @@ class TraceHook:
         filename = code.co_filename
 
         if not self.path_filter.is_in_scope(filename):
-            if code.co_name == "__init__":
-                self_obj = frame.f_locals.get("self")
-                if self_obj is not None and self.path_filter.is_tracked_class(type(self_obj)):
+            self_obj = frame.f_locals.get("self")
+            if self_obj is not None and self.path_filter.is_tracked_class(type(self_obj)):
+                if code.co_name == "__init__":
                     self._handle_init(frame, code, self_obj)
+                    return None
+                bound_to = self.graph.get_object_uuid(id(self_obj))
+                if bound_to is not None:
+                    ref = self._make_ref(code)
+                    a_ids, a_vals = _capture_arg_ids_values(frame, code)
+                    self.graph.record_call(
+                        ref, bound_to=bound_to,
+                        arg_ids=a_ids or None, arg_values=a_vals or None,
+                    )
+                    return self._local_trace
             return None
 
         captured_args = self._extract_args(frame, code) if self._capture_specs else None
@@ -85,12 +122,15 @@ class TraceHook:
         if self_obj is not None:
             bound_to = self.graph.get_object_uuid(id(self_obj))
 
+        a_ids, a_vals = _capture_arg_ids_values(frame, code)
         func_uuid = self.graph.record_call(
             ref,
             coroutine=coroutine_uuid,
             bound_to=bound_to,
             captured_args=captured_args,
             timestamp=time.time() if captured_args else None,
+            arg_ids=a_ids or None,
+            arg_values=a_vals or None,
         )
 
         if code.co_name == "__init__":
@@ -177,7 +217,9 @@ class TraceHook:
             return None
 
         if event == "return":
-            self.graph.record_return()
+            ret_id = id(arg) if arg is not None else None
+            ret_repr = _safe_repr(arg) if arg is not None else None
+            self.graph.record_return(return_id=ret_id, return_value=ret_repr)
             return None
 
         return self._local_trace

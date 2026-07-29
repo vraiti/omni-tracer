@@ -40,6 +40,8 @@ class TraceGraph:
         bound_to: str | None = None,
         captured_args: dict[str, str] | None = None,
         timestamp: float | None = None,
+        arg_ids: dict[str, int] | None = None,
+        arg_values: dict[str, str] | None = None,
     ) -> str:
         node = FunctionNode(
             ref=ref,
@@ -49,6 +51,8 @@ class TraceGraph:
             bound_to=bound_to,
             captured_args=captured_args,
             timestamp=timestamp,
+            arg_ids=arg_ids,
+            arg_values=arg_values,
         )
         stack = self._call_stack()
         with self._lock:
@@ -60,10 +64,21 @@ class TraceGraph:
         stack.append(node.uuid)
         return node.uuid
 
-    def record_return(self) -> str | None:
+    def record_return(
+        self,
+        return_id: int | None = None,
+        return_value: str | None = None,
+    ) -> str | None:
         stack = self._call_stack()
         if stack:
-            return stack.pop()
+            uuid = stack.pop()
+            if return_id is not None or return_value is not None:
+                with self._lock:
+                    node = self.functions.get(uuid)
+                    if node is not None:
+                        node.return_id = return_id
+                        node.return_value = return_value
+            return uuid
         return None
 
     def record_instantiation(
@@ -150,6 +165,10 @@ class TraceGraph:
                 bound_to=v.get("bound_to"),
                 captured_args=v.get("captured_args"),
                 timestamp=v.get("timestamp"),
+                arg_ids=v.get("arg_ids"),
+                arg_values=v.get("arg_values"),
+                return_id=v.get("return_id"),
+                return_value=v.get("return_value"),
             )
             graph.functions[k] = node
         for k, v in data.get("objects", {}).items():

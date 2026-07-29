@@ -14,6 +14,10 @@ class FunctionNode:
     bound_to: str | None = None
     captured_args: dict[str, str] | None = None
     timestamp: float | None = None
+    arg_ids: dict[str, int] | None = None
+    arg_values: dict[str, str] | None = None
+    return_id: int | None = None
+    return_value: str | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -30,6 +34,14 @@ class FunctionNode:
             d["captured_args"] = self.captured_args
         if self.timestamp is not None:
             d["timestamp"] = self.timestamp
+        if self.arg_ids is not None:
+            d["arg_ids"] = self.arg_ids
+        if self.arg_values is not None:
+            d["arg_values"] = self.arg_values
+        if self.return_id is not None:
+            d["return_id"] = self.return_id
+        if self.return_value is not None:
+            d["return_value"] = self.return_value
         return d
 
 
