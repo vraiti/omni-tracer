@@ -292,13 +292,6 @@ function populateCallChainPanel(): void {
 
   callChainList.innerHTML = "";
 
-  const allRow = document.createElement("div");
-  allRow.className = "panel-row";
-  allRow.style.color = rootFuncId === null ? "#5a9" : "#d4d4d4";
-  allRow.textContent = "All (no filter)";
-  allRow.addEventListener("click", () => selectCallChain(null));
-  callChainList.appendChild(allRow);
-
   for (const entry of limited) {
     const row = document.createElement("div");
     row.className = "panel-row";
