@@ -1092,25 +1092,10 @@ function drawPaths(paths: EdgePath[]): void {
   svg.setAttribute("width", String(hierarchyEl.scrollWidth));
   svg.setAttribute("height", String(hierarchyEl.scrollHeight));
 
-  const defs = document.createElementNS(svgNs, "defs");
-  const marker = document.createElementNS(svgNs, "marker");
-  marker.setAttribute("id", "arrowhead");
-  marker.setAttribute("markerWidth", "8");
-  marker.setAttribute("markerHeight", "6");
-  marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "3");
-  marker.setAttribute("orient", "auto");
-  const arrow = document.createElementNS(svgNs, "path");
-  arrow.setAttribute("d", "M0,0 L8,3 L0,6 Z");
-  marker.appendChild(arrow);
-  defs.appendChild(marker);
-  svg.appendChild(defs);
-
   for (const p of paths) {
     const d = "M" + p.pts.map(pt => pt.x + "," + pt.y).join(" L");
     const path = document.createElementNS(svgNs, "path");
     path.setAttribute("d", d);
-    path.setAttribute("marker-end", "url(#arrowhead)");
     path.setAttribute("data-edge-id", p.id);
     path.setAttribute("data-target-uuid", p.targetUuid);
     svg.appendChild(path);
