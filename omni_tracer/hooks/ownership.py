@@ -8,6 +8,7 @@ from omni_tracer.core.graph import TraceGraph
 from omni_tracer.filters import PathFilter
 
 _PRIMITIVE_TYPES = (str, int, float, bool, type(None))
+_MQ_TRACER_TAG = "##__omni_tracer_mq__##"
 
 
 def _safe_repr(obj: object) -> str:
@@ -169,19 +170,22 @@ class OwnershipHook:
             return qid
 
         def _traced_enqueue(self_q: Any, obj: Any, timeout: float | None = None) -> Any:
-            result = original_enqueue(self_q, obj, timeout)
             qid = _get_queue_id(self_q)
             if qid is not None:
                 seq = next(self_q._tracer_seq)
-                graph.record_queue_event(qid, "put", f"{qid}-{seq}", _safe_repr(obj))
-            return result
+                event_id = f"{qid}-{seq}"
+                graph.record_queue_event(qid, "put", event_id, _safe_repr(obj))
+                obj = (_MQ_TRACER_TAG, event_id, obj)
+            return original_enqueue(self_q, obj, timeout)
 
         def _traced_dequeue(self_q: Any, timeout: float | None = None, indefinite: bool = False) -> Any:
             result = original_dequeue(self_q, timeout, indefinite)
-            qid = _get_queue_id(self_q)
-            if qid is not None:
-                seq = next(self_q._tracer_seq)
-                graph.record_queue_event(qid, "get", f"{qid}-{seq}", _safe_repr(result))
+            if isinstance(result, tuple) and len(result) == 3 and result[0] == _MQ_TRACER_TAG:
+                event_id, obj = result[1], result[2]
+                qid = _get_queue_id(self_q)
+                if qid is not None:
+                    graph.record_queue_event(qid, "get", event_id, _safe_repr(obj))
+                return obj
             return result
 
         MessageQueue.enqueue = _traced_enqueue
