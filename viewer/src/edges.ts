@@ -1,6 +1,7 @@
 import type { Point, Rect, EdgePath } from "./types";
 import { rootRows, setRootRows, saveConfig, traceData, rootOrder } from "./state";
 import { findIdentifierPairs, getClassName } from "./graph";
+import type { TraceData } from "./types";
 
 let edgeLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 let hierarchyEl: HTMLElement;
@@ -89,6 +90,7 @@ function layoutNodes(): void {
   let globalIdx = 0;
 
   const hasRootOrder = Object.keys(rootOrder).length > 0;
+  const ipcFaces = traceData ? computeIpcFaces(traceData, processBoxes) : {};
 
   for (const procBox of processBoxes) {
     const container = procBox.querySelector(".process-children") as HTMLElement;
@@ -130,7 +132,7 @@ function layoutNodes(): void {
       e.el.style.visibility = "visible";
       e.el.dataset.row = String(e.partition);
     }
-    rearrangeChildren(container);
+    rearrangeChildren(container, ipcFaces);
 
     for (const e of entries) {
       e.w = e.el.offsetWidth;
@@ -505,14 +507,43 @@ interface RootMaps {
   yByUuid: Record<string, number>;
   partByUuid: Record<string, number>;
   incomingByUuid: Record<string, IncomingRef[]>;
+  ipcFaceByUuid: Record<string, AnchorFace>;
 }
 
-function rearrangeChildren(container: HTMLElement): void {
+function computeIpcFaces(objects: TraceData, processBoxes: NodeListOf<HTMLElement>): Record<string, AnchorFace> {
+  const result: Record<string, AnchorFace> = {};
+
+  const procBoxIndex = new Map<string, number>();
+  const uuidToProcIdx = new Map<string, number>();
+  let idx = 0;
+  for (const pb of processBoxes) {
+    const container = pb.querySelector(".process-children");
+    if (!container) { idx++; continue; }
+    procBoxIndex.set(pb.id || String(idx), idx);
+    for (const box of container.querySelectorAll(".obj-box[data-uuid]") as NodeListOf<HTMLElement>) {
+      if (box.dataset.uuid) uuidToProcIdx.set(box.dataset.uuid, idx);
+    }
+    idx++;
+  }
+
+  const pairs = findIdentifierPairs(objects);
+  for (const [uuidA, uuidB] of pairs) {
+    const idxA = uuidToProcIdx.get(uuidA);
+    const idxB = uuidToProcIdx.get(uuidB);
+    if (idxA === undefined || idxB === undefined || idxA === idxB) continue;
+    result[uuidA] = idxB > idxA ? "bottom" : "top";
+    result[uuidB] = idxA > idxB ? "bottom" : "top";
+  }
+
+  return result;
+}
+
+function rearrangeChildren(container: HTMLElement, ipcFaces: Record<string, AnchorFace>): void {
   const rootBoxes = container.querySelectorAll(
     ":scope > .obj-box"
   ) as NodeListOf<HTMLElement>;
 
-  const maps: RootMaps = { yByUuid: {}, partByUuid: {}, incomingByUuid: {} };
+  const maps: RootMaps = { yByUuid: {}, partByUuid: {}, incomingByUuid: {}, ipcFaceByUuid: ipcFaces };
   for (const rb of rootBoxes) {
     const y = rb.offsetTop;
     const part = parseInt(rb.dataset.row || "0", 10);
@@ -577,6 +608,9 @@ function sortLevel(
       const childFace = sortLevel(child, rootY, srcPart, maps, false);
       let face = childFace;
       const boxUuid = child.dataset.uuid;
+      if (boxUuid && boxUuid in maps.ipcFaceByUuid && face === null) {
+        face = maps.ipcFaceByUuid[boxUuid];
+      }
       const incoming = boxUuid ? maps.incomingByUuid[boxUuid] : undefined;
       if (incoming && incoming.length > 0) {
         const aboveCount = incoming.filter(r => r.srcPart < srcPart).length;
