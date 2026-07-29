@@ -1,4 +1,4 @@
-import { traceData, excludedClasses, pinnedRootClasses, entrypointClasses, saveConfig } from "./state";
+import { traceData, excludedClasses, pinnedRootClasses, rootOrder, saveConfig } from "./state";
 import { getClassName } from "./graph";
 import { render, buildAndRender } from "./render";
 
@@ -10,10 +10,10 @@ let pinRootBtn: HTMLElement;
 let pinRootPanel: HTMLElement;
 let pinRootFilter: HTMLInputElement;
 let pinRootList: HTMLElement;
-let entrypointBtn: HTMLElement;
-let entrypointPanel: HTMLElement;
-let entrypointFilter: HTMLInputElement;
-let entrypointList: HTMLElement;
+let rootOrderBtn: HTMLElement;
+let rootOrderPanel: HTMLElement;
+let rootOrderFilter: HTMLInputElement;
+let rootOrderList: HTMLElement;
 
 export function initPanels(): void {
   excludeBtn = document.getElementById("exclude-btn")!;
@@ -24,10 +24,10 @@ export function initPanels(): void {
   pinRootPanel = document.getElementById("pin-root-panel")!;
   pinRootFilter = document.getElementById("pin-root-filter") as HTMLInputElement;
   pinRootList = document.getElementById("pin-root-list")!;
-  entrypointBtn = document.getElementById("entrypoint-btn")!;
-  entrypointPanel = document.getElementById("entrypoint-panel")!;
-  entrypointFilter = document.getElementById("entrypoint-filter") as HTMLInputElement;
-  entrypointList = document.getElementById("entrypoint-list")!;
+  rootOrderBtn = document.getElementById("root-order-btn")!;
+  rootOrderPanel = document.getElementById("root-order-panel")!;
+  rootOrderFilter = document.getElementById("root-order-filter") as HTMLInputElement;
+  rootOrderList = document.getElementById("root-order-list")!;
   excludeBtn.addEventListener("click", e => {
     e.stopPropagation();
     excludePanel.classList.toggle("hidden");
@@ -44,8 +44,8 @@ export function initPanels(): void {
     if (!pinRootPanel.contains(e.target as Node) && e.target !== pinRootBtn) {
       pinRootPanel.classList.add("hidden");
     }
-    if (!entrypointPanel.contains(e.target as Node) && e.target !== entrypointBtn) {
-      entrypointPanel.classList.add("hidden");
+    if (!rootOrderPanel.contains(e.target as Node) && e.target !== rootOrderBtn) {
+      rootOrderPanel.classList.add("hidden");
     }
   });
 
@@ -64,17 +64,17 @@ export function initPanels(): void {
   pinRootFilter.addEventListener("click", e => e.stopPropagation());
   pinRootFilter.addEventListener("input", () => populatePinRootPanel());
 
-  entrypointBtn.addEventListener("click", e => {
+  rootOrderBtn.addEventListener("click", e => {
     e.stopPropagation();
-    entrypointPanel.classList.toggle("hidden");
-    if (!entrypointPanel.classList.contains("hidden")) {
-      populateEntrypointPanel();
-      entrypointFilter.focus();
+    rootOrderPanel.classList.toggle("hidden");
+    if (!rootOrderPanel.classList.contains("hidden")) {
+      populateRootOrderPanel();
+      rootOrderFilter.focus();
     }
   });
 
-  entrypointFilter.addEventListener("click", e => e.stopPropagation());
-  entrypointFilter.addEventListener("input", () => populateEntrypointPanel());
+  rootOrderFilter.addEventListener("click", e => e.stopPropagation());
+  rootOrderFilter.addEventListener("input", () => populateRootOrderPanel());
 }
 
 function getClassCounts(): Record<string, number> {
@@ -161,18 +161,65 @@ function populatePinRootPanel(): void {
   });
 }
 
-export function updateEntrypointBtn(): void {
-  const n = entrypointClasses.size;
-  entrypointBtn.textContent = n > 0 ? `Entrypoints (${n}) ▾` : "Entrypoints ▾";
+export function updateRootOrderBtn(): void {
+  const n = Object.keys(rootOrder).length;
+  rootOrderBtn.textContent = n > 0 ? `Root order (${n}) ▾` : "Root order ▾";
 }
 
-function populateEntrypointPanel(): void {
-  populatePanel(entrypointFilter, entrypointList, entrypointClasses, "#c95", (name, checked) => {
-    if (checked) entrypointClasses.add(name);
-    else entrypointClasses.delete(name);
-    saveConfig();
-    updateEntrypointBtn();
-    buildAndRender();
-  });
+function populateRootOrderPanel(): void {
+  const counts = getClassCounts();
+  const search = rootOrderFilter.value.toLowerCase();
+  const sorted = Object.entries(counts)
+    .filter(([name]) => !search || name.toLowerCase().includes(search))
+    .sort((a, b) => {
+      const aRanked = a[0] in rootOrder ? 0 : 1;
+      const bRanked = b[0] in rootOrder ? 0 : 1;
+      if (aRanked !== bRanked) return aRanked - bRanked;
+      if (aRanked === 0) return (rootOrder[a[0]] ?? 0) - (rootOrder[b[0]] ?? 0);
+      return a[0].localeCompare(b[0]);
+    });
+
+  rootOrderList.innerHTML = "";
+  for (const [name, count] of sorted) {
+    const row = document.createElement("label");
+    row.className = "panel-row";
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.style.width = "48px";
+    input.style.marginRight = "6px";
+    input.min = "0";
+    if (name in rootOrder) {
+      input.value = String(rootOrder[name]);
+    } else {
+      input.value = "";
+      input.placeholder = "-";
+    }
+    input.addEventListener("click", e => e.stopPropagation());
+    input.addEventListener("change", () => {
+      const val = input.value.trim();
+      if (val === "") {
+        delete rootOrder[name];
+      } else {
+        rootOrder[name] = parseInt(val, 10) || 0;
+      }
+      saveConfig();
+      updateRootOrderBtn();
+      buildAndRender();
+    });
+
+    const text = document.createElement("span");
+    text.textContent = name;
+    text.style.flex = "1";
+
+    const badge = document.createElement("span");
+    badge.textContent = String(count);
+    badge.className = "badge";
+
+    row.appendChild(input);
+    row.appendChild(text);
+    row.appendChild(badge);
+    rootOrderList.appendChild(row);
+  }
 }
 

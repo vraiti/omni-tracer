@@ -1,6 +1,6 @@
 import type { Point, Rect, EdgePath } from "./types";
-import { rootRows, setRootRows, saveConfig, traceData, entrypointClasses } from "./state";
-import { findIdentifierPairs, getClassName, findIpcRoots } from "./graph";
+import { rootRows, setRootRows, saveConfig, traceData, rootOrder } from "./state";
+import { findIdentifierPairs, getClassName } from "./graph";
 
 let edgeLayoutTimer: ReturnType<typeof setTimeout> | null = null;
 let hierarchyEl: HTMLElement;
@@ -88,23 +88,7 @@ function layoutNodes(): void {
 
   let globalIdx = 0;
 
-  let serverProcBox: HTMLElement | null = null;
-  if (entrypointClasses.size > 0) {
-    for (const procBox of processBoxes) {
-      const rootBoxes = procBox.querySelectorAll(":scope > .process-children > .obj-box") as NodeListOf<HTMLElement>;
-      for (const rb of rootBoxes) {
-        if (entrypointClasses.has(getClassName(rb.dataset.ref || ""))) {
-          serverProcBox = procBox;
-          break;
-        }
-      }
-      if (serverProcBox) break;
-    }
-  }
-
-  const ipcRootUuids = traceData
-    ? findIpcRoots(traceData, Array.from(hierarchyEl.querySelectorAll(".process-children > .obj-box")).map(el => (el as HTMLElement).dataset.uuid || ""))
-    : new Set<string>();
+  const hasRootOrder = Object.keys(rootOrder).length > 0;
 
   for (const procBox of processBoxes) {
     const container = procBox.querySelector(".process-children") as HTMLElement;
@@ -125,9 +109,8 @@ function layoutNodes(): void {
       });
     }
 
-    if (entrypointClasses.size > 0) {
-      const isServer = procBox === serverProcBox;
-      bfsAssignPartitions(entries, procBox, isServer, ipcRootUuids);
+    if (hasRootOrder) {
+      applyRootOrder(entries);
     }
 
     const byPartition = new Map<number, RootEntry[]>();
@@ -222,97 +205,20 @@ function placeNodes(
   }
 }
 
-function bfsAssignPartitions(
-  entries: RootEntry[],
-  procBox: HTMLElement,
-  isServer: boolean,
-  ipcRootUuids: Set<string>,
-): void {
-  const rootElToId = new Map<HTMLElement, string>();
-  for (const e of entries) rootElToId.set(e.el, e.id);
-
-  const entryById = new Map<string, RootEntry>();
-  for (const e of entries) entryById.set(e.id, e);
-
-  const adjacency = new Map<string, Set<string>>();
-  const container = procBox.querySelector(".process-children") as HTMLElement;
-  if (!container) return;
-  const refEls = container.querySelectorAll(".obj-ref[data-ref-target]");
-
-  for (const refEl of refEls) {
-    const targetUuid = (refEl as HTMLElement).dataset.refTarget;
-    if (!targetUuid) continue;
-    const targetEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
-    if (!targetEl) continue;
-    const srcRoot = findRootBox(refEl);
-    const tgtRoot = findRootBox(targetEl);
-    if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
-    const srcId = rootElToId.get(srcRoot);
-    const tgtId = rootElToId.get(tgtRoot);
-    if (!srcId || !tgtId) continue;
-    if (!adjacency.has(srcId)) adjacency.set(srcId, new Set());
-    adjacency.get(srcId)!.add(tgtId);
-    if (!adjacency.has(tgtId)) adjacency.set(tgtId, new Set());
-    adjacency.get(tgtId)!.add(srcId);
-  }
-
-  const isIpcRoot = (e: RootEntry): boolean => {
-    const uuid = e.el.dataset.uuid || "";
-    return ipcRootUuids.has(uuid);
-  };
-
-  const bfsPartition: Record<string, number> = {};
-  const queue: string[] = [];
-
-  const isEntrypoint = (e: RootEntry): boolean =>
-    entrypointClasses.has(getClassName(e.ref));
-
-  if (isServer) {
-    for (const e of entries) {
-      if (isEntrypoint(e)) {
-        bfsPartition[e.id] = 0;
-        queue.push(e.id);
-      }
-    }
-  } else {
-    for (const e of entries) {
-      if (isIpcRoot(e)) {
-        bfsPartition[e.id] = 0;
-        queue.push(e.id);
-      }
+function applyRootOrder(entries: RootEntry[]): void {
+  let maxRank = -1;
+  for (const e of entries) {
+    const cls = getClassName(e.ref);
+    if (cls in rootOrder) {
+      e.partition = rootOrder[cls];
+      if (rootOrder[cls] > maxRank) maxRank = rootOrder[cls];
     }
   }
-
-  let qi = 0;
-  while (qi < queue.length) {
-    const cur = queue[qi++];
-    const neighbors = adjacency.get(cur);
-    if (!neighbors) continue;
-    for (const nb of neighbors) {
-      if (!(nb in bfsPartition)) {
-        const nbEntry = entryById.get(nb);
-        if (isServer && nbEntry && isIpcRoot(nbEntry)) continue;
-        bfsPartition[nb] = bfsPartition[cur] + 1;
-        queue.push(nb);
-      }
-    }
-  }
-
-  const maxPartition = Math.max(0, ...Object.values(bfsPartition));
-
-  if (isServer) {
-    const unreachedPartition = maxPartition + 1;
-    const ipcPartition = maxPartition + 2;
-    for (const e of entries) {
-      if (isIpcRoot(e) && !isEntrypoint(e)) {
-        e.partition = ipcPartition;
-      } else {
-        e.partition = bfsPartition[e.id] ?? unreachedPartition;
-      }
-    }
-  } else {
-    for (const e of entries) {
-      e.partition = bfsPartition[e.id] ?? maxPartition + 1;
+  const unrankedPartition = maxRank + 1;
+  for (const e of entries) {
+    const cls = getClassName(e.ref);
+    if (!(cls in rootOrder)) {
+      e.partition = unrankedPartition;
     }
   }
 }

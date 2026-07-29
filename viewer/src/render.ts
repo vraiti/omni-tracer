@@ -1,6 +1,6 @@
 import {
   traceData, parentMap, effectiveParentMap, creationOrder, collapsedSet,
-  excludedClasses, entrypointClasses, rootRows, setRendered, markRendered, isRendered,
+  excludedClasses, rootOrder, rootRows, setRendered, markRendered, isRendered,
   saveConfig,
   setParentMap, setCreationOrder, setEffectiveParentMap,
 } from "./state";
@@ -58,11 +58,12 @@ export function render(): void {
     rootsByProc[proc].push(uuid);
   }
 
+  const hasRootOrder = Object.keys(rootOrder).length > 0;
   let serverProc: string | null = null;
-  if (entrypointClasses.size > 0) {
+  if (hasRootOrder) {
     for (const [proc, uuids] of Object.entries(rootsByProc)) {
       for (const uuid of uuids) {
-        if (entrypointClasses.has(getClassName(traceData[uuid].ref))) {
+        if (getClassName(traceData[uuid].ref) in rootOrder) {
           serverProc = proc;
           break;
         }
@@ -78,7 +79,7 @@ export function render(): void {
     const label = document.createElement("div");
     label.className = "process-label";
     let procLabel = "process " + proc.substring(0, 12) + "...";
-    if (entrypointClasses.size > 0) {
+    if (hasRootOrder) {
       procLabel = (proc === serverProc ? "server " : "worker ") + proc.substring(0, 12) + "...";
     }
     label.textContent = procLabel;

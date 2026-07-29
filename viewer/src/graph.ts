@@ -160,36 +160,6 @@ const IDENTIFIER_ATTRS: Record<string, string> = {
   "SpinCondition": "notify_address",
 };
 
-const IPC_CLASSES = new Set(Object.keys(IDENTIFIER_ATTRS));
-
-export function isIpcClass(ref: string): boolean {
-  const cls = getClassName(ref);
-  const short = cls.includes(".") ? cls.split(".").pop()! : cls;
-  return IPC_CLASSES.has(short);
-}
-
-export function findIpcRoots(objects: TraceData, rootUuids: string[]): Set<string> {
-  const result = new Set<string>();
-  for (const rootUuid of rootUuids) {
-    if (subtreeHasIpc(objects, rootUuid, new Set())) {
-      result.add(rootUuid);
-    }
-  }
-  return result;
-}
-
-function subtreeHasIpc(objects: TraceData, uuid: string, visited: Set<string>): boolean {
-  if (visited.has(uuid)) return false;
-  visited.add(uuid);
-  const obj = objects[uuid];
-  if (!obj) return false;
-  if (isIpcClass(obj.ref)) return true;
-  for (const child of getOwnedUuids(obj)) {
-    if (subtreeHasIpc(objects, child, visited)) return true;
-  }
-  return false;
-}
-
 export function findIdentifierPairs(objects: TraceData): [string, string][] {
   const groups = new Map<string, { uuid: string; process: string }[]>();
 

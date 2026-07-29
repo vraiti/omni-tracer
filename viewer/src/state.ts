@@ -9,7 +9,7 @@ export let excludedClasses = new Set<string>();
 export let pinnedRootClasses = new Set<string>();
 export let creationOrder: CreationOrder = {};
 export let effectiveParentMap: EffectiveParentMap = {};
-export let entrypointClasses = new Set<string>();
+export let rootOrder: Record<string, number> = {};
 export let rootRows: string[][] = [];
 export let ownershipOverrides: Record<string, string> = {};
 
@@ -27,7 +27,7 @@ interface Config {
   collapsed?: string[];
   excluded?: string[];
   pinnedRoots?: string[];
-  entrypoints?: string[];
+  rootOrder?: Record<string, number>;
   rootRows?: string[][];
   ownershipOverrides?: Record<string, string>;
 }
@@ -36,7 +36,7 @@ function applyConfig(cfg: Config): void {
   collapsedSet = new Set(cfg.collapsed || []);
   excludedClasses = new Set(cfg.excluded || []);
   pinnedRootClasses = new Set(cfg.pinnedRoots || []);
-  entrypointClasses = new Set(cfg.entrypoints || []);
+  rootOrder = cfg.rootOrder || {};
   rootRows = cfg.rootRows || [];
   ownershipOverrides = cfg.ownershipOverrides || {};
 }
@@ -45,7 +45,7 @@ function clearState(): void {
   collapsedSet = new Set();
   excludedClasses = new Set();
   pinnedRootClasses = new Set();
-  entrypointClasses = new Set();
+  rootOrder = {};
   rootRows = [];
   ownershipOverrides = {};
 }
@@ -73,7 +73,7 @@ export function saveConfig(): void {
     collapsed: Array.from(collapsedSet),
     excluded: Array.from(excludedClasses),
     pinnedRoots: Array.from(pinnedRootClasses),
-    entrypoints: Array.from(entrypointClasses),
+    rootOrder,
     rootRows,
     ownershipOverrides,
   };
