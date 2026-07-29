@@ -101,13 +101,17 @@ class CallSite:
     line: int
     func_expr: str
     arg_exprs: list[str]
+    kwarg_exprs: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "line": self.line,
             "func_expr": self.func_expr,
             "arg_exprs": self.arg_exprs,
         }
+        if self.kwarg_exprs:
+            d["kwarg_exprs"] = self.kwarg_exprs
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> CallSite:
@@ -115,6 +119,7 @@ class CallSite:
             line=d["line"],
             func_expr=d["func_expr"],
             arg_exprs=d.get("arg_exprs", []),
+            kwarg_exprs=d.get("kwarg_exprs", {}),
         )
 
 
@@ -331,7 +336,11 @@ class _FlowBuilder(ast.NodeVisitor):
     def _record_call_site(self, call: ast.Call, line: int) -> None:
         func_expr = _expr_to_str(call.func)
         arg_exprs = [_expr_to_str(a) for a in call.args]
-        self.flow.call_sites.append(CallSite(line, func_expr, arg_exprs))
+        kwarg_exprs: dict[str, str] = {}
+        for kw in call.keywords:
+            if kw.arg is not None:
+                kwarg_exprs[kw.arg] = _expr_to_str(kw.value)
+        self.flow.call_sites.append(CallSite(line, func_expr, arg_exprs, kwarg_exprs))
         for i, arg in enumerate(call.args):
             source = self._resolve_expr(arg, line)
             param_sink = FlowNode(
@@ -341,3 +350,13 @@ class _FlowBuilder(ast.NodeVisitor):
                 func_expr,
             )
             self._add_edge(source, param_sink, line)
+        for kw in call.keywords:
+            if kw.arg is not None:
+                source = self._resolve_expr(kw.value, line)
+                param_sink = FlowNode(
+                    FlowNodeKind.PARAM,
+                    f"{func_expr}:{kw.arg}",
+                    line,
+                    func_expr,
+                )
+                self._add_edge(source, param_sink, line)

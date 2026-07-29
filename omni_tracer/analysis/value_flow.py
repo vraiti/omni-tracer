@@ -107,8 +107,11 @@ def _resolve_arg_flows(
         obj_node_id = obj_lookup.get(arg_id) if arg_id else None
 
         source_name = ""
-        if call_site and i < len(call_site.arg_exprs):
-            source_name = call_site.arg_exprs[i]
+        if call_site:
+            if i < len(call_site.arg_exprs):
+                source_name = call_site.arg_exprs[i]
+            elif param_name in call_site.kwarg_exprs:
+                source_name = call_site.kwarg_exprs[param_name]
 
         edges.append(ValueFlowEdge(
             source_func=parent_id,
