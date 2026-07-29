@@ -143,6 +143,11 @@ body {
   align-items: start;
 }
 
+.child-row.anchored-top,
+.child-row.anchored-bottom {
+  flex-wrap: nowrap;
+}
+
 .child-row.anchored-bottom {
   margin-top: auto;
 }
