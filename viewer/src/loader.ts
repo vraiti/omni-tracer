@@ -1,7 +1,7 @@
 import type { TraceData } from "./types";
 import { setTraceData, setTraceFileName, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
 import { buildAndRender } from "./render";
-import { updateExcludeBtn, updatePinRootBtn } from "./panels";
+import { updateExcludeBtn, updatePinRootBtn, updateEntrypointBtn } from "./panels";
 
 let loadingEl: HTMLElement;
 
@@ -15,6 +15,7 @@ async function applyTrace(raw: Record<string, unknown>, tracePath: string): Prom
   applyOwnershipOverrides();
   updateExcludeBtn();
   updatePinRootBtn();
+  updateEntrypointBtn();
   buildAndRender();
   history.replaceState(null, "", "/?trace=" + tracePath);
   saveLastTrace(tracePath);

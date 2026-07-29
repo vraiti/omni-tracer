@@ -1,4 +1,4 @@
-import { traceData, excludedClasses, pinnedRootClasses, saveConfig } from "./state";
+import { traceData, excludedClasses, pinnedRootClasses, entrypointClasses, saveConfig } from "./state";
 import { getClassName } from "./graph";
 import { render, buildAndRender } from "./render";
 
@@ -10,6 +10,10 @@ let pinRootBtn: HTMLElement;
 let pinRootPanel: HTMLElement;
 let pinRootFilter: HTMLInputElement;
 let pinRootList: HTMLElement;
+let entrypointBtn: HTMLElement;
+let entrypointPanel: HTMLElement;
+let entrypointFilter: HTMLInputElement;
+let entrypointList: HTMLElement;
 
 export function initPanels(): void {
   excludeBtn = document.getElementById("exclude-btn")!;
@@ -20,6 +24,10 @@ export function initPanels(): void {
   pinRootPanel = document.getElementById("pin-root-panel")!;
   pinRootFilter = document.getElementById("pin-root-filter") as HTMLInputElement;
   pinRootList = document.getElementById("pin-root-list")!;
+  entrypointBtn = document.getElementById("entrypoint-btn")!;
+  entrypointPanel = document.getElementById("entrypoint-panel")!;
+  entrypointFilter = document.getElementById("entrypoint-filter") as HTMLInputElement;
+  entrypointList = document.getElementById("entrypoint-list")!;
   excludeBtn.addEventListener("click", e => {
     e.stopPropagation();
     excludePanel.classList.toggle("hidden");
@@ -35,6 +43,9 @@ export function initPanels(): void {
     }
     if (!pinRootPanel.contains(e.target as Node) && e.target !== pinRootBtn) {
       pinRootPanel.classList.add("hidden");
+    }
+    if (!entrypointPanel.contains(e.target as Node) && e.target !== entrypointBtn) {
+      entrypointPanel.classList.add("hidden");
     }
   });
 
@@ -53,6 +64,17 @@ export function initPanels(): void {
   pinRootFilter.addEventListener("click", e => e.stopPropagation());
   pinRootFilter.addEventListener("input", () => populatePinRootPanel());
 
+  entrypointBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    entrypointPanel.classList.toggle("hidden");
+    if (!entrypointPanel.classList.contains("hidden")) {
+      populateEntrypointPanel();
+      entrypointFilter.focus();
+    }
+  });
+
+  entrypointFilter.addEventListener("click", e => e.stopPropagation());
+  entrypointFilter.addEventListener("input", () => populateEntrypointPanel());
 }
 
 function getClassCounts(): Record<string, number> {
@@ -135,6 +157,21 @@ function populatePinRootPanel(): void {
     else pinnedRootClasses.delete(name);
     saveConfig();
     updatePinRootBtn();
+    buildAndRender();
+  });
+}
+
+export function updateEntrypointBtn(): void {
+  const n = entrypointClasses.size;
+  entrypointBtn.textContent = n > 0 ? `Entrypoints (${n}) ▾` : "Entrypoints ▾";
+}
+
+function populateEntrypointPanel(): void {
+  populatePanel(entrypointFilter, entrypointList, entrypointClasses, "#c95", (name, checked) => {
+    if (checked) entrypointClasses.add(name);
+    else entrypointClasses.delete(name);
+    saveConfig();
+    updateEntrypointBtn();
     buildAndRender();
   });
 }
