@@ -42,6 +42,12 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
         default=False,
         help="Only record function calls that match --capture-args (reduces memory).",
     )
+    parser.add_argument(
+        "--value-flow",
+        action="store_true",
+        default=False,
+        help="Capture argument IDs and return values for value-flow tracking.",
+    )
     try:
         sep = sys.argv.index("--")
         tracer_args = sys.argv[1:sep]

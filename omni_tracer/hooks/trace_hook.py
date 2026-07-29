@@ -14,14 +14,19 @@ CO_COROUTINE = inspect.CO_COROUTINE
 _REPR_LIMIT = 128
 
 
+_PRIMITIVE_TYPES = (str, int, float, bool, type(None))
+
+
 def _safe_repr(val: Any, limit: int = _REPR_LIMIT) -> str:
-    try:
-        s = repr(val)
-    except Exception:
-        s = f"<{type(val).__name__}>"
-    if len(s) > limit:
-        return s[:limit - 3] + "..."
-    return s
+    if isinstance(val, _PRIMITIVE_TYPES):
+        try:
+            s = repr(val)
+        except Exception:
+            s = f"<{type(val).__name__}>"
+        if len(s) > limit:
+            return s[:limit - 3] + "..."
+        return s
+    return f"<{type(val).__name__}>"
 
 
 def _capture_arg_ids_values(
@@ -47,6 +52,7 @@ class TraceHook:
         path_filter: PathFilter,
         capture_specs: list[ArgCaptureSpec] | None = None,
         capture_only: bool = False,
+        capture_value_flow: bool = False,
     ) -> None:
         self.graph = graph
         self.path_filter = path_filter
@@ -54,6 +60,7 @@ class TraceHook:
         self.enabled = True
         self._capture_specs = capture_specs or []
         self._capture_only = capture_only
+        self._capture_value_flow = capture_value_flow
 
     def install(self) -> None:
         self.ownership.install_module_hook()
@@ -94,7 +101,9 @@ class TraceHook:
                 bound_to = self.graph.get_object_uuid(id(self_obj))
                 if bound_to is not None:
                     ref = self._make_ref(code)
-                    a_ids, a_vals = _capture_arg_ids_values(frame, code)
+                    a_ids = a_vals = None
+                    if self._capture_value_flow:
+                        a_ids, a_vals = _capture_arg_ids_values(frame, code)
                     self.graph.record_call(
                         ref, bound_to=bound_to,
                         arg_ids=a_ids or None, arg_values=a_vals or None,
@@ -122,7 +131,9 @@ class TraceHook:
         if self_obj is not None:
             bound_to = self.graph.get_object_uuid(id(self_obj))
 
-        a_ids, a_vals = _capture_arg_ids_values(frame, code)
+        a_ids = a_vals = None
+        if self._capture_value_flow:
+            a_ids, a_vals = _capture_arg_ids_values(frame, code)
         func_uuid = self.graph.record_call(
             ref,
             coroutine=coroutine_uuid,
@@ -217,9 +228,12 @@ class TraceHook:
             return None
 
         if event == "return":
-            ret_id = id(arg) if arg is not None else None
-            ret_repr = _safe_repr(arg) if arg is not None else None
-            self.graph.record_return(return_id=ret_id, return_value=ret_repr)
+            if self._capture_value_flow and arg is not None:
+                self.graph.record_return(
+                    return_id=id(arg), return_value=_safe_repr(arg),
+                )
+            else:
+                self.graph.record_return()
             return None
 
         return self._local_trace

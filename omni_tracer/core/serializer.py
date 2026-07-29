@@ -53,7 +53,10 @@ def _find_code_object(ref: str):
             continue
         obj = _resolve_qualname(mod, qualname)
         if obj is not None:
-            code = getattr(obj, "__code__", None)
+            try:
+                code = getattr(obj, "__code__", None)
+            except Exception:
+                continue
             if code is not None:
                 return code
     return None
@@ -63,7 +66,10 @@ def _resolve_qualname(mod, qualname: str):
     parts = qualname.split(".")
     obj = mod
     for part in parts:
-        obj = getattr(obj, part, None)
+        try:
+            obj = getattr(obj, part, None)
+        except Exception:
+            return None
         if obj is None:
             return None
     return obj
