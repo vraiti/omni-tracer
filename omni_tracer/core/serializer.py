@@ -11,7 +11,7 @@ from omni_tracer.core.graph import TraceGraph
 def serialize(
     graph: TraceGraph,
     output_path: str | Path,
-    resolve_flows: bool = True,
+    resolve_flows: bool = False,
 ) -> None:
     data = graph.to_dict()
     if resolve_flows:
