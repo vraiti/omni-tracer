@@ -166,8 +166,19 @@ export function updateRootOrderBtn(): void {
   rootOrderBtn.textContent = n > 0 ? `Root order (${n}) ▾` : "Root order ▾";
 }
 
+function getRootClassCounts(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const el of document.querySelectorAll(".process-children > .obj-box") as NodeListOf<HTMLElement>) {
+    const ref = el.dataset.ref;
+    if (!ref) continue;
+    const name = getClassName(ref);
+    counts[name] = (counts[name] || 0) + 1;
+  }
+  return counts;
+}
+
 function populateRootOrderPanel(): void {
-  const counts = getClassCounts();
+  const counts = getRootClassCounts();
   const search = rootOrderFilter.value.toLowerCase();
   const sorted = Object.entries(counts)
     .filter(([name]) => !search || name.toLowerCase().includes(search))
