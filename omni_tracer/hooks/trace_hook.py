@@ -64,6 +64,8 @@ class TraceHook:
 
     def install(self) -> None:
         self.ownership.install_module_hook()
+        if self._capture_value_flow:
+            self.ownership.patch_queue_class()
         sys.settrace(self._global_trace)
 
     def uninstall(self) -> None:
@@ -98,7 +100,7 @@ class TraceHook:
                 if code.co_name == "__init__":
                     self._handle_init(frame, code, self_obj)
                     return None
-                bound_to = self.graph.get_object_uuid(id(self_obj))
+                bound_to = self.graph.get_object_id(id(self_obj))
                 if bound_to is not None:
                     ref = self._make_ref(code)
                     a_ids = a_vals = None
@@ -122,21 +124,21 @@ class TraceHook:
 
         ref = self._make_ref(code)
 
-        coroutine_uuid = None
+        coroutine_id = None
         if code.co_flags & CO_COROUTINE:
-            coroutine_uuid = self.graph.process_uuid + ":" + str(id(frame))
+            coroutine_id = self.graph.process_id + ":" + str(id(frame))
 
         bound_to = None
         self_obj = frame.f_locals.get("self")
         if self_obj is not None:
-            bound_to = self.graph.get_object_uuid(id(self_obj))
+            bound_to = self.graph.get_object_id(id(self_obj))
 
         a_ids = a_vals = None
         if self._capture_value_flow:
             a_ids, a_vals = _capture_arg_ids_values(frame, code)
-        func_uuid = self.graph.record_call(
+        func_id = self.graph.record_call(
             ref,
-            coroutine=coroutine_uuid,
+            coroutine=coroutine_id,
             bound_to=bound_to,
             captured_args=captured_args,
             timestamp=time.time() if captured_args else None,
@@ -147,8 +149,8 @@ class TraceHook:
         if code.co_name == "__init__":
             self._handle_init(frame, code, self_obj)
             if captured_args and self_obj is not None:
-                obj_uuid = self.graph.get_object_uuid(id(self_obj))
-                if obj_uuid is not None:
+                obj_id = self.graph.get_object_id(id(self_obj))
+                if obj_id is not None:
                     for k, v in captured_args.items():
                         self.graph.record_attr(id(self_obj), k, v)
 
@@ -174,13 +176,19 @@ class TraceHook:
                 class_ref = f"{inspect.getfile(cls)}:{cls.__qualname__}"
             except (TypeError, OSError):
                 class_ref = f"<unknown>:{cls.__qualname__}"
-        creator_obj_uuid, created_in = self._find_creator(frame, self_obj)
+        creator_id, created_in = self._find_creator(frame, self_obj)
         self.graph.record_instantiation(
             class_ref, id(self_obj),
-            creator_obj_uuid=creator_obj_uuid,
+            creator_id=creator_id,
             created_in=created_in,
         )
         self.ownership.patch_class(cls)
+        if self._capture_value_flow:
+            cls_mod = getattr(cls, "__module__", "")
+            if cls_mod == "janus" and cls.__name__ == "Queue":
+                node_id = self.graph.get_object_id(id(self_obj))
+                if node_id is not None:
+                    self.ownership.init_queue_instance(self_obj, node_id)
 
     def _extract_args(
         self, frame: types.FrameType, code: types.CodeType,
@@ -214,10 +222,10 @@ class TraceHook:
         while f is not None:
             caller_self = f.f_locals.get("self")
             if caller_self is not None and caller_self is not self_obj:
-                uuid = self.graph.get_object_uuid(id(caller_self))
-                if uuid is not None:
+                node_id = self.graph.get_object_id(id(caller_self))
+                if node_id is not None:
                     func_name = f.f_code.co_qualname
-                    return uuid, func_name
+                    return node_id, func_name
             f = f.f_back
         return None, None
 

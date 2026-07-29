@@ -277,6 +277,7 @@ function selectCallChain(fid: string | null): void {
   if (functionData) {
     setObjectMethods(buildObjectMethods(functionData, fid));
   }
+  saveConfig();
   updateCallChainBtn();
   callChainPanel.classList.add("hidden");
   buildAndRender();

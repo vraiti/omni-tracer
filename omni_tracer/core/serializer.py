@@ -41,7 +41,7 @@ def _load_functions(raw: dict[str, Any]) -> dict[str, FunctionNode]:
     functions: dict[str, FunctionNode] = {}
     for k, v in raw.items():
         functions[k] = FunctionNode(
-            uuid=k,
+            id=k,
             ref=v["ref"],
             process=v["process"],
             invokes=v.get("invokes", []),
@@ -61,12 +61,12 @@ def _load_functions(raw: dict[str, Any]) -> dict[str, FunctionNode]:
 def _build_flows_from_refs(functions: dict[str, FunctionNode]) -> dict:
     seen_refs: dict[str, Any] = {}
     flows = {}
-    for uuid, node in functions.items():
+    for func_id, node in functions.items():
         if node.ref in seen_refs:
             flow = seen_refs[node.ref]
         else:
             flow = get_function_flow_from_ref(node.ref)
             seen_refs[node.ref] = flow
         if flow is not None:
-            flows[uuid] = flow
+            flows[func_id] = flow
     return flows

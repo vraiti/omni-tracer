@@ -48,14 +48,14 @@ export interface Rect {
 
 export interface EdgePath {
   pts: Point[];
-  targetUuid: string;
+  targetId: string;
   id: string;
 }
 
 export interface EdgeInfo {
   refEl: Element;
   targetEl: Element;
-  targetUuid: string;
+  targetId: string;
   srcRoot: Element;
   tgtRoot: Element;
   sameRoot: boolean;

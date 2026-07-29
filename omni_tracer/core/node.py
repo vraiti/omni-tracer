@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 class FunctionNode:
     ref: str
     process: str
-    uuid: str = ""
+    id: str = ""
     invokes: list[str] = field(default_factory=list)
     instantiates: list[str] = field(default_factory=list)
     coroutine: str | None = None
@@ -49,7 +49,7 @@ class FunctionNode:
 class ObjectNode:
     ref: str
     process: str
-    uuid: str = ""
+    id: str = ""
     owns: dict[str, str] = field(default_factory=dict)
     created_by: str | None = None
     created_in: str | None = None

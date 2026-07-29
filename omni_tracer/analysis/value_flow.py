@@ -19,7 +19,7 @@ class ValueFlowEdge:
     target_func: str
     target_type: str
     target_name: str
-    obj_uuid: str | None = None
+    obj_id: str | None = None
     value_repr: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,8 +31,8 @@ class ValueFlowEdge:
             "target_type": self.target_type,
             "target_name": self.target_name,
         }
-        if self.obj_uuid is not None:
-            d["obj_uuid"] = self.obj_uuid
+        if self.obj_id is not None:
+            d["obj_id"] = self.obj_id
         if self.value_repr is not None:
             d["value_repr"] = self.value_repr
         return d
@@ -46,7 +46,7 @@ class ValueFlowEdge:
             target_func=d["target_func"],
             target_type=d["target_type"],
             target_name=d["target_name"],
-            obj_uuid=d.get("obj_uuid"),
+            obj_id=d.get("obj_id"),
             value_repr=d.get("value_repr"),
         )
 
@@ -54,29 +54,29 @@ class ValueFlowEdge:
 def resolve_value_flows(
     functions: dict[str, FunctionNode],
     flows: dict[str, FunctionFlow],
-    obj_id_to_uuid: dict[int, str] | None = None,
+    obj_id_to_node_id: dict[int, str] | None = None,
 ) -> list[ValueFlowEdge]:
     edges: list[ValueFlowEdge] = []
-    obj_lookup = obj_id_to_uuid or {}
+    obj_lookup = obj_id_to_node_id or {}
 
-    for parent_uuid, parent_node in functions.items():
+    for parent_id, parent_node in functions.items():
         if not parent_node.invokes:
             continue
-        parent_flow = flows.get(parent_uuid)
+        parent_flow = flows.get(parent_id)
 
-        for child_uuid in parent_node.invokes:
-            child_node = functions.get(child_uuid)
+        for child_id in parent_node.invokes:
+            child_node = functions.get(child_id)
             if child_node is None:
                 continue
 
             edges.extend(_resolve_arg_flows(
-                parent_uuid, parent_node, parent_flow,
-                child_uuid, child_node,
+                parent_id, parent_node, parent_flow,
+                child_id, child_node,
                 obj_lookup,
             ))
             edges.extend(_resolve_return_flows(
-                parent_uuid, parent_flow,
-                child_uuid, child_node,
+                parent_id, parent_flow,
+                child_id, child_node,
                 obj_lookup,
             ))
 
@@ -84,10 +84,10 @@ def resolve_value_flows(
 
 
 def _resolve_arg_flows(
-    parent_uuid: str,
+    parent_id: str,
     parent_node: FunctionNode,
     parent_flow: FunctionFlow | None,
-    child_uuid: str,
+    child_id: str,
     child_node: FunctionNode,
     obj_lookup: dict[int, str],
 ) -> list[ValueFlowEdge]:
@@ -104,20 +104,20 @@ def _resolve_arg_flows(
     for i, param_name in enumerate(param_names):
         arg_id = child_arg_ids.get(param_name)
         arg_repr = child_arg_values.get(param_name)
-        obj_uuid = obj_lookup.get(arg_id) if arg_id else None
+        obj_node_id = obj_lookup.get(arg_id) if arg_id else None
 
         source_name = ""
         if call_site and i < len(call_site.arg_exprs):
             source_name = call_site.arg_exprs[i]
 
         edges.append(ValueFlowEdge(
-            source_func=parent_uuid,
+            source_func=parent_id,
             source_type="arg",
             source_name=source_name,
-            target_func=child_uuid,
+            target_func=child_id,
             target_type="arg",
             target_name=param_name,
-            obj_uuid=obj_uuid,
+            obj_id=obj_node_id,
             value_repr=arg_repr,
         ))
 
@@ -125,9 +125,9 @@ def _resolve_arg_flows(
 
 
 def _resolve_return_flows(
-    parent_uuid: str,
+    parent_id: str,
     parent_flow: FunctionFlow | None,
-    child_uuid: str,
+    child_id: str,
     child_node: FunctionNode,
     obj_lookup: dict[int, str],
 ) -> list[ValueFlowEdge]:
@@ -135,20 +135,20 @@ def _resolve_return_flows(
     if child_node.return_id is None and child_node.return_value is None:
         return edges
 
-    obj_uuid = obj_lookup.get(child_node.return_id) if child_node.return_id else None
+    obj_node_id = obj_lookup.get(child_node.return_id) if child_node.return_id else None
 
     target_name = ""
     if parent_flow:
         target_name = _find_return_target(parent_flow, child_node)
 
     edges.append(ValueFlowEdge(
-        source_func=child_uuid,
+        source_func=child_id,
         source_type="return",
         source_name="",
-        target_func=parent_uuid,
+        target_func=parent_id,
         target_type="return",
         target_name=target_name,
-        obj_uuid=obj_uuid,
+        obj_id=obj_node_id,
         value_repr=child_node.return_value,
     ))
 

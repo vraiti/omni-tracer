@@ -26,8 +26,8 @@ export function setFunctionData(fd: FunctionData | null) { functionData = fd; }
 export function setObjectMethods(om: Record<string, FuncCallNode[]>) { objectMethods = om; }
 export function setRootFuncId(id: string | null) { rootFuncId = id; }
 export function setFuncIndex(idx: import("./functions").FuncIndexEntry[]) { funcIndex = idx; }
-export function markRendered(uuid: string) { rendered[uuid] = true; }
-export function isRendered(uuid: string): boolean { return !!rendered[uuid]; }
+export function markRendered(id: string) { rendered[id] = true; }
+export function isRendered(id: string): boolean { return !!rendered[id]; }
 
 interface Config {
   collapsed?: string[];
@@ -35,6 +35,7 @@ interface Config {
   pinnedRoots?: string[];
   rootOrder?: Record<string, number>;
   ownershipOverrides?: Record<string, string>;
+  callChain?: string | null;
 }
 
 function applyConfig(cfg: Config): void {
@@ -43,6 +44,7 @@ function applyConfig(cfg: Config): void {
   pinnedRootClasses = new Set(cfg.pinnedRoots || []);
   rootOrder = cfg.rootOrder || {};
   ownershipOverrides = cfg.ownershipOverrides || {};
+  rootFuncId = cfg.callChain || null;
 }
 
 function clearState(): void {
@@ -70,8 +72,8 @@ export async function loadConfig(_tracePath: string): Promise<void> {
 
 export function applyOwnershipOverrides(): void {
   if (!traceData) return;
-  for (const [uuid, parent] of Object.entries(ownershipOverrides)) {
-    if (traceData[uuid]) traceData[uuid].created_by = parent;
+  for (const [id, parent] of Object.entries(ownershipOverrides)) {
+    if (traceData[id]) traceData[id].created_by = parent;
   }
 }
 
@@ -82,6 +84,7 @@ export function saveConfig(): void {
     pinnedRoots: Array.from(pinnedRootClasses),
     rootOrder,
     ownershipOverrides,
+    callChain: rootFuncId,
   };
   fetch("/save-config", {
     method: "POST",

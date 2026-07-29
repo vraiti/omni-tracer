@@ -1,5 +1,5 @@
 import { traceData, effectiveParentMap, parentMap } from "./state";
-import { getClassName, getOwnedUuids } from "./graph";
+import { getClassName, getOwnedIds } from "./graph";
 
 let tooltipEl: HTMLElement;
 
@@ -7,14 +7,14 @@ export function initTooltip(): void {
   tooltipEl = document.getElementById("tooltip")!;
 }
 
-export function showTooltip(e: MouseEvent, uuid: string): void {
+export function showTooltip(e: MouseEvent, id: string): void {
   if (!traceData) return;
-  const obj = traceData[uuid];
+  const obj = traceData[id];
   if (!obj) return;
 
-  const ownedUuids = getOwnedUuids(obj);
-  const parents = effectiveParentMap[uuid] || [];
-  const backRefs = (parentMap[uuid] || []).filter(p => !parents.includes(p));
+  const ownedIds = getOwnedIds(obj);
+  const parents = effectiveParentMap[id] || [];
+  const backRefs = (parentMap[id] || []).filter(p => !parents.includes(p));
 
   const addLine = (key: string, val: string) => {
     if (tooltipEl.children.length > 0) tooltipEl.appendChild(document.createElement("br"));
@@ -31,8 +31,8 @@ export function showTooltip(e: MouseEvent, uuid: string): void {
   tooltipEl.innerHTML = "";
   addLine("class", getClassName(obj.ref));
   addLine("file", obj.ref.split(":").slice(0, -1).join(":"));
-  addLine("uuid", uuid);
-  addLine("owns", ownedUuids.length + " object" + (ownedUuids.length !== 1 ? "s" : ""));
+  addLine("id", id);
+  addLine("owns", ownedIds.length + " object" + (ownedIds.length !== 1 ? "s" : ""));
   addLine("owned by", parents.length > 0 ? parents.map(p => getClassName(traceData![p].ref)).join(", ") : "none (root)");
   if (backRefs.length > 0) {
     addLine("back-refs", backRefs.map(p => getClassName(traceData![p].ref)).join(", "));

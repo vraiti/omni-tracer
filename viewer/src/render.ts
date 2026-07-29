@@ -1,16 +1,18 @@
 import type { FuncCallNode } from "./types";
 import {
   traceData, parentMap, effectiveParentMap, creationOrder, collapsedSet,
-  excludedClasses, rootOrder, objectMethods, setRendered, markRendered, isRendered,
+  excludedClasses, rootOrder, objectMethods, functionData, rootFuncId,
+  setRendered, markRendered, isRendered,
   saveConfig,
   setParentMap, setCreationOrder, setEffectiveParentMap,
 } from "./state";
 import {
-  getClassName, getOwned, getOwnedUuids,
+  getClassName, getOwned, getOwnedIds,
   synthesizeLocalOwnership, buildParentMap, buildCreationOrder, buildEffectiveParentMap,
   findRoots, canReach, isPinnedRoot, participatesInOwnership, clearReachCache,
 } from "./graph";
 import { scheduleEdgeLayout, highlightEdges, clearEdgeHighlights } from "./edges";
+import { MODULE_KEY } from "./functions";
 
 let hierarchyEl: HTMLElement;
 let controlsEl: HTMLElement;
@@ -53,18 +55,18 @@ export function render(): void {
   const allRoots = findRoots(traceData, effectiveParentMap);
 
   const rootsByProc: Record<string, string[]> = {};
-  for (const uuid of allRoots) {
-    const proc = traceData[uuid].process || "unknown";
+  for (const id of allRoots) {
+    const proc = traceData[id].process || "unknown";
     if (!rootsByProc[proc]) rootsByProc[proc] = [];
-    rootsByProc[proc].push(uuid);
+    rootsByProc[proc].push(id);
   }
 
   const hasRootOrder = Object.keys(rootOrder).length > 0;
   let serverProc: string | null = null;
   if (hasRootOrder) {
-    for (const [proc, uuids] of Object.entries(rootsByProc)) {
-      for (const uuid of uuids) {
-        if (getClassName(traceData[uuid].ref) in rootOrder) {
+    for (const [proc, ids] of Object.entries(rootsByProc)) {
+      for (const id of ids) {
+        if (getClassName(traceData[id].ref) in rootOrder) {
           serverProc = proc;
           break;
         }
@@ -73,7 +75,11 @@ export function render(): void {
     }
   }
 
-  for (const [proc, rootUuids] of Object.entries(rootsByProc)) {
+  const moduleMethods = objectMethods[MODULE_KEY];
+  const moduleProc = rootFuncId && functionData?.[rootFuncId]
+    ? functionData[rootFuncId].process : null;
+
+  for (const [proc, rootIds] of Object.entries(rootsByProc)) {
     const procBox = document.createElement("div");
     procBox.className = "process-box";
 
@@ -89,73 +95,82 @@ export function render(): void {
     const children = document.createElement("div");
     children.className = "process-children";
 
-    const sorted = defaultSort(rootUuids);
+    if (moduleMethods && moduleMethods.length > 0 && proc === moduleProc) {
+      const modBox = renderModuleBox(moduleMethods);
+      if (modBox) {
+        children.appendChild(modBox);
+      }
+    }
+
+    const sorted = defaultSort(rootIds);
 
     let hasContent = false;
-    for (const uuid of sorted) {
-      const el = renderObject(uuid, 0, new Set(), filterText, showIso);
+    for (const id of sorted) {
+      const el = renderObject(id, 0, new Set(), filterText, showIso);
       if (el) {
         children.appendChild(el);
         hasContent = true;
       }
     }
 
-    if (hasContent) {
+    if (hasContent || children.childElementCount > 0) {
       procBox.appendChild(children);
       hierarchyEl.appendChild(procBox);
-
     }
   }
 
   const totalShown = hierarchyEl.querySelectorAll(".obj-box:not(.hidden)").length;
   statsEl.textContent = totalShown + " / " + totalObjects + " objects shown";
 
-  requestAnimationFrame(() => scheduleEdgeLayout());
+  requestAnimationFrame(() => {
+    scheduleEdgeLayout();
+    requestAnimationFrame(() => drawAllFuncEdges());
+  });
 }
 
-function matchesFilter(uuid: string, filterText: string): boolean {
+function matchesFilter(id: string, filterText: string): boolean {
   if (!filterText) return true;
   if (!traceData) return false;
-  const obj = traceData[uuid];
+  const obj = traceData[id];
   if (!obj) return false;
   return getClassName(obj.ref).toLowerCase().includes(filterText);
 }
 
-function subtreeMatchesFilter(uuid: string, filterText: string, visited: Set<string>): boolean {
+function subtreeMatchesFilter(id: string, filterText: string, visited: Set<string>): boolean {
   if (!traceData) return false;
-  if (visited.has(uuid)) return false;
-  visited.add(uuid);
-  if (matchesFilter(uuid, filterText)) return true;
-  const obj = traceData[uuid];
+  if (visited.has(id)) return false;
+  visited.add(id);
+  if (matchesFilter(id, filterText)) return true;
+  const obj = traceData[id];
   if (!obj) return false;
-  for (const child of getOwnedUuids(obj)) {
+  for (const child of getOwnedIds(obj)) {
     if (traceData[child] && subtreeMatchesFilter(child, filterText, visited)) return true;
   }
   return false;
 }
 
-function isExcluded(uuid: string): boolean {
+function isExcluded(id: string): boolean {
   if (!traceData) return false;
-  const obj = traceData[uuid];
+  const obj = traceData[id];
   if (!obj) return false;
   return excludedClasses.has(getClassName(obj.ref));
 }
 
-function defaultSort(uuids: string[]): string[] {
-  return uuids.slice().sort((a, b) => {
-    const oa = getOwnedUuids(traceData![a]).length;
-    const ob = getOwnedUuids(traceData![b]).length;
+function defaultSort(ids: string[]): string[] {
+  return ids.slice().sort((a, b) => {
+    const oa = getOwnedIds(traceData![a]).length;
+    const ob = getOwnedIds(traceData![b]).length;
     return ob - oa;
   });
 }
 
-function highlightGroup(uuid: string): void {
-  for (const el of hierarchyEl.querySelectorAll(`.obj-ref[data-ref-target="${uuid}"]`)) {
+function highlightGroup(id: string): void {
+  for (const el of hierarchyEl.querySelectorAll(`.obj-ref[data-ref-target="${id}"]`)) {
     el.classList.add("group-highlight");
   }
-  const box = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuid}"]`);
+  const box = hierarchyEl.querySelector(`.obj-box[data-node-id="${id}"]`);
   if (box) box.classList.add("group-highlight");
-  highlightEdges(uuid);
+  highlightEdges(id);
 }
 
 function clearGroupHighlight(): void {
@@ -168,17 +183,17 @@ function clearGroupHighlight(): void {
 function rehighlightParent(el: HTMLElement, _e: MouseEvent): void {
   const parentBox = el.parentElement?.closest(".obj-box") as HTMLElement | null;
   if (!parentBox) return;
-  const parentUuid = parentBox.dataset.uuid;
-  if (!parentUuid) return;
-  highlightGroup(parentUuid);
+  const parentId = parentBox.dataset.nodeId;
+  if (!parentId) return;
+  highlightGroup(parentId);
 }
 
-function toggleCollapse(uuid: string, box: HTMLElement): void {
-  if (collapsedSet.has(uuid)) {
-    collapsedSet.delete(uuid);
+function toggleCollapse(id: string, box: HTMLElement): void {
+  if (collapsedSet.has(id)) {
+    collapsedSet.delete(id);
     box.classList.remove("collapsed");
   } else {
-    collapsedSet.add(uuid);
+    collapsedSet.add(id);
     box.classList.add("collapsed");
   }
   saveConfig();
@@ -186,7 +201,7 @@ function toggleCollapse(uuid: string, box: HTMLElement): void {
 }
 
 function renderObject(
-  uuid: string,
+  id: string,
   depth: number,
   visited: Set<string>,
   filterText: string,
@@ -195,30 +210,30 @@ function renderObject(
   skipOwned?: string,
 ): HTMLElement | null {
   if (!traceData) return null;
-  const obj = traceData[uuid];
+  const obj = traceData[id];
   if (!obj) return null;
 
-  if (isExcluded(uuid)) return null;
-  if (!showIso && !participatesInOwnership(uuid, traceData, parentMap)) return null;
+  if (isExcluded(id)) return null;
+  if (!showIso && !participatesInOwnership(id, traceData, parentMap)) return null;
 
-  if (visited.has(uuid)) {
-    if (!subtreeMatchesFilter(uuid, filterText, new Set())) return null;
-    return renderRef(uuid, attrName);
+  if (visited.has(id)) {
+    if (!subtreeMatchesFilter(id, filterText, new Set())) return null;
+    return renderRef(id, attrName);
   }
 
-  if (isRendered(uuid)) {
-    if (!subtreeMatchesFilter(uuid, filterText, new Set())) return null;
-    return renderRef(uuid, attrName);
+  if (isRendered(id)) {
+    if (!subtreeMatchesFilter(id, filterText, new Set())) return null;
+    return renderRef(id, attrName);
   }
 
-  if (!subtreeMatchesFilter(uuid, filterText, new Set(visited))) return null;
+  if (!subtreeMatchesFilter(id, filterText, new Set(visited))) return null;
 
-  visited.add(uuid);
-  markRendered(uuid);
+  visited.add(id);
+  markRendered(id);
 
   const box = document.createElement("div");
   box.className = "obj-box depth-" + (depth % 7);
-  box.dataset.uuid = uuid;
+  box.dataset.nodeId = id;
   box.dataset.ref = obj.ref;
 
   const label = document.createElement("div");
@@ -238,17 +253,17 @@ function renderObject(
   }
   box.appendChild(label);
 
-  if (collapsedSet.has(uuid)) box.classList.add("collapsed");
+  if (collapsedSet.has(id)) box.classList.add("collapsed");
 
   label.addEventListener("click", e => {
     e.stopPropagation();
-    toggleCollapse(uuid, box);
+    toggleCollapse(id, box);
   });
 
   box.addEventListener("mouseenter", e => {
     e.stopPropagation();
     clearGroupHighlight();
-    highlightGroup(uuid);
+    highlightGroup(id);
   });
   box.addEventListener("mouseleave", e => {
     e.stopPropagation();
@@ -262,8 +277,8 @@ function renderObject(
     childrenDiv.className = "obj-children";
 
     const sortedOwns = ownedEntries.slice().sort((a, b) => {
-      const oa = traceData![a[0]] ? getOwnedUuids(traceData![a[0]]).length : 0;
-      const ob = traceData![b[0]] ? getOwnedUuids(traceData![b[0]]).length : 0;
+      const oa = traceData![a[0]] ? getOwnedIds(traceData![a[0]]).length : 0;
+      const ob = traceData![b[0]] ? getOwnedIds(traceData![b[0]]).length : 0;
       return ob - oa;
     });
 
@@ -271,14 +286,14 @@ function renderObject(
     for (const [child, childAttr] of sortedOwns) {
       let el: HTMLElement | null;
       const childEffParents = effectiveParentMap[child];
-      if (isPinnedRoot(child) || (childEffParents && childEffParents.length > 0 && !childEffParents.includes(uuid))) {
+      if (isPinnedRoot(child) || (childEffParents && childEffParents.length > 0 && !childEffParents.includes(id))) {
         if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
         el = renderRef(child, childAttr);
-      } else if (traceData[child] && canReach(traceData, child, uuid, new Set())) {
+      } else if (traceData[child] && canReach(traceData, child, id, new Set())) {
         const childOwns = traceData[child].owns;
         const ownsMap = Array.isArray(childOwns) ? {} as Record<string, string> : (childOwns || {});
-        if (uuid in ownsMap) {
-          el = renderObject(child, depth + 1, new Set(visited), filterText, showIso, childAttr, uuid);
+        if (id in ownsMap) {
+          el = renderObject(child, depth + 1, new Set(visited), filterText, showIso, childAttr, id);
         } else {
           if (!subtreeMatchesFilter(child, filterText, new Set())) continue;
           el = renderRef(child, childAttr);
@@ -297,77 +312,192 @@ function renderObject(
     }
   }
 
-  const methods = objectMethods[uuid];
+  const methods = objectMethods[id];
   if (methods && methods.length > 0) {
-    const section = document.createElement("div");
-    section.className = "func-section";
-    for (const node of methods) {
-      section.appendChild(renderFuncNode(node, uuid));
+    const flat = flattenFuncTree(methods, id);
+    if (flat.length > 0) {
+      const section = document.createElement("div");
+      section.className = "func-section";
+      for (const entry of flat) {
+        section.appendChild(renderFlatFuncBox(entry));
+      }
+      box.appendChild(section);
     }
-    box.appendChild(section);
   }
 
   return box;
 }
 
-function renderFuncNode(node: FuncCallNode, contextObj: string): HTMLElement {
+function renderModuleBox(methods: FuncCallNode[]): HTMLElement | null {
+  const flat = flattenFuncTree(methods, null);
+  if (flat.length === 0) return null;
+
+  const rootRef = rootFuncId && functionData?.[rootFuncId]
+    ? functionData[rootFuncId].ref : "";
+  const parts = rootRef.split("/");
+  const fileName = parts.length > 0 ? parts[parts.length - 1].split(":")[0] : "module";
+
+  const box = document.createElement("div");
+  box.className = "obj-box module-box depth-0";
+  box.dataset.row = "0";
+
+  const label = document.createElement("div");
+  label.className = "obj-label";
+  label.textContent = fileName;
+  box.appendChild(label);
+
+  const section = document.createElement("div");
+  section.className = "func-section";
+  for (const entry of flat) {
+    section.appendChild(renderFlatFuncBox(entry));
+  }
+  box.appendChild(section);
+
+  return box;
+}
+
+interface FlatFuncEntry {
+  node: FuncCallNode;
+  id: string;
+  parentId: string | null;
+  depth: number;
+  contextObj: string | null;
+}
+
+const FUNC_INDENT = 16;
+
+function flattenFuncTree(roots: FuncCallNode[], contextObj: string | null): FlatFuncEntry[] {
+  const flat: FlatFuncEntry[] = [];
+  let seq = 0;
+
+  function walk(node: FuncCallNode, parentId: string | null, depth: number): void {
+    const id = `f${seq++}`;
+    flat.push({ node, id, parentId, depth, contextObj });
+    for (const child of node.children) {
+      walk(child, id, depth + 1);
+    }
+  }
+
+  for (const root of roots) {
+    walk(root, null, 0);
+  }
+  return flat;
+}
+
+function renderFlatFuncBox(entry: FlatFuncEntry): HTMLElement {
+  const { node, id, parentId, depth, contextObj } = entry;
   const isCrossObject = node.boundTo !== null && node.boundTo !== contextObj;
 
+  const box = document.createElement("div");
+  box.dataset.funcId = id;
+  box.dataset.funcDepth = String(depth);
+  if (parentId !== null) box.dataset.funcParent = parentId;
+  box.style.marginLeft = (depth * FUNC_INDENT) + "px";
+
   if (isCrossObject) {
-    const el = document.createElement("span");
-    el.className = "func-cross-ref";
+    box.className = "func-box cross-obj";
     const targetClass = traceData?.[node.boundTo!]
       ? getClassName(traceData[node.boundTo!].ref) : "?";
-    const label = node.count > 1 ? `(${node.count}) ` : "";
-    el.textContent = `${label}→ ${targetClass}.${node.name}`;
-    el.addEventListener("click", () => {
-      const target = hierarchyEl.querySelector(`.obj-box[data-uuid="${node.boundTo}"]`);
+    const prefix = node.count > 1 ? `(${node.count}) ` : "";
+    box.textContent = `${prefix}→ ${targetClass}.${node.name}`;
+    box.style.cursor = "pointer";
+    box.addEventListener("click", () => {
+      const target = hierarchyEl.querySelector(`.obj-box[data-node-id="${node.boundTo}"]`);
       if (target) {
         target.scrollIntoView({ behavior: "smooth", block: "center" });
         target.classList.add("group-highlight");
         setTimeout(() => target.classList.remove("group-highlight"), 2000);
       }
     });
-    return el;
+  } else {
+    box.className = "func-box" + (node.boundTo === null ? " unbound" : "");
+    const prefix = node.count > 1 ? `(${node.count}) ` : "";
+    box.textContent = prefix + node.name;
   }
 
-  const el = document.createElement("div");
-  el.className = "func-node" + (node.boundTo === null ? " unbound" : "");
-
-  const label = document.createElement("span");
-  label.className = "func-name";
-  const prefix = node.count > 1 ? `(${node.count}) ` : "";
-  label.textContent = prefix + node.name;
-  el.appendChild(label);
-
-  if (node.children.length > 0) {
-    const childrenDiv = document.createElement("div");
-    childrenDiv.className = "func-children";
-    for (const child of node.children) {
-      childrenDiv.appendChild(renderFuncNode(child, contextObj));
-    }
-    el.appendChild(childrenDiv);
-  }
-
-  return el;
+  return box;
 }
 
-function renderRef(uuid: string, attrName?: string): HTMLElement | null {
+export function drawAllFuncEdges(): void {
+  for (const svg of document.querySelectorAll(".func-edges")) {
+    svg.remove();
+  }
+
+  for (const section of document.querySelectorAll(".func-section")) {
+    drawFuncSectionEdges(section as HTMLElement);
+  }
+}
+
+function drawFuncSectionEdges(section: HTMLElement): void {
+  const boxes = section.querySelectorAll<HTMLElement>("[data-func-id]");
+  if (boxes.length < 2) return;
+
+  const boxMap = new Map<string, HTMLElement>();
+  const edges: { parentId: string; childId: string }[] = [];
+
+  for (const box of boxes) {
+    boxMap.set(box.dataset.funcId!, box);
+    if (box.dataset.funcParent) {
+      edges.push({ parentId: box.dataset.funcParent, childId: box.dataset.funcId! });
+    }
+  }
+
+  if (edges.length === 0) return;
+
+  const sRect = section.getBoundingClientRect();
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("func-edges");
+  svg.setAttribute("width", String(section.scrollWidth));
+  svg.setAttribute("height", String(section.scrollHeight));
+
+  for (const edge of edges) {
+    const parentEl = boxMap.get(edge.parentId);
+    const childEl = boxMap.get(edge.childId);
+    if (!parentEl || !childEl) continue;
+
+    const pr = parentEl.getBoundingClientRect();
+    const cr = childEl.getBoundingClientRect();
+
+    const childDepth = parseInt(childEl.dataset.funcDepth || "0", 10);
+    const gutterX = (childDepth * FUNC_INDENT) + FUNC_INDENT / 2;
+
+    const py = pr.bottom - sRect.top;
+    const cy = cr.top - sRect.top + cr.height / 2;
+    const cx = cr.left - sRect.left;
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", `M ${gutterX} ${py} L ${gutterX} ${cy} L ${cx} ${cy}`);
+    path.setAttribute("fill", "none");
+
+    const isUnbound = childEl.classList.contains("unbound");
+    const isCross = childEl.classList.contains("cross-obj");
+    path.setAttribute("stroke", isCross ? "#c95" : isUnbound ? "#555" : "#5a9");
+    path.setAttribute("stroke-width", "1");
+    path.setAttribute("stroke-opacity", "0.6");
+
+    svg.appendChild(path);
+  }
+
+  section.appendChild(svg);
+}
+
+function renderRef(id: string, attrName?: string): HTMLElement | null {
   if (!traceData) return null;
-  const obj = traceData[uuid];
+  const obj = traceData[id];
   if (!obj) return null;
-  if (isExcluded(uuid)) return null;
+  if (isExcluded(id)) return null;
 
   const el = document.createElement("div");
   el.className = "obj-ref";
   el.textContent = (attrName || getClassName(obj.ref)) + " ⇗";
-  el.dataset.uuid = uuid;
-  el.dataset.refTarget = uuid;
+  el.dataset.nodeId = id;
+  el.dataset.refTarget = id;
 
   el.addEventListener("mouseenter", e => {
     e.stopPropagation();
     clearGroupHighlight();
-    highlightGroup(uuid);
+    highlightGroup(id);
   });
   el.addEventListener("mouseleave", e => {
     e.stopPropagation();
@@ -376,7 +506,7 @@ function renderRef(uuid: string, attrName?: string): HTMLElement | null {
   });
 
   el.addEventListener("click", () => {
-    const target = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuid}"]`);
+    const target = hierarchyEl.querySelector(`.obj-box[data-node-id="${id}"]`);
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "center" });
       (target as HTMLElement).style.outline = "2px solid #5a9";

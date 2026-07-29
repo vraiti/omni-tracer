@@ -17,7 +17,7 @@ export function getOwned(obj: TraceObject): [string, string][] {
   return Object.entries(owns);
 }
 
-export function getOwnedUuids(obj: TraceObject): string[] {
+export function getOwnedIds(obj: TraceObject): string[] {
   const owns = obj.owns || {};
   if (Array.isArray(owns)) return owns;
   return Object.keys(owns);
@@ -26,10 +26,10 @@ export function getOwnedUuids(obj: TraceObject): string[] {
 export function synthesizeLocalOwnership(objects: TraceData): void {
   const owned = new Set<string>();
   for (const obj of Object.values(objects)) {
-    for (const child of getOwnedUuids(obj)) owned.add(child);
+    for (const child of getOwnedIds(obj)) owned.add(child);
   }
-  for (const [uuid, obj] of Object.entries(objects)) {
-    if (owned.has(uuid)) continue;
+  for (const [id, obj] of Object.entries(objects)) {
+    if (owned.has(id)) continue;
     if (!obj.created_by) continue;
     const creator = objects[obj.created_by];
     if (!creator) continue;
@@ -39,16 +39,16 @@ export function synthesizeLocalOwnership(objects: TraceData): void {
       creator.owns = Object.fromEntries(creator.owns.map(u => [u, ""]));
     }
     if (!creator.owns) creator.owns = {};
-    (creator.owns as Record<string, string>)[uuid] = label;
+    (creator.owns as Record<string, string>)[id] = label;
   }
 }
 
 export function buildParentMap(objects: TraceData): ParentMap {
   const pm: ParentMap = {};
-  for (const uuid of Object.keys(objects)) {
-    for (const child of getOwnedUuids(objects[uuid])) {
+  for (const id of Object.keys(objects)) {
+    for (const child of getOwnedIds(objects[id])) {
       if (!pm[child]) pm[child] = [];
-      pm[child].push(uuid);
+      pm[child].push(id);
     }
   }
   return pm;
@@ -57,8 +57,8 @@ export function buildParentMap(objects: TraceData): ParentMap {
 export function buildCreationOrder(objects: TraceData): CreationOrder {
   const order: CreationOrder = {};
   let i = 0;
-  for (const uuid of Object.keys(objects)) {
-    order[uuid] = i++;
+  for (const id of Object.keys(objects)) {
+    order[id] = i++;
   }
   return order;
 }
@@ -76,7 +76,7 @@ export function canReach(objects: TraceData, from: string, to: string, visited: 
   visited.add(from);
   const obj = objects[from];
   if (!obj) { _reachCache[key] = false; return false; }
-  for (const child of getOwnedUuids(obj)) {
+  for (const child of getOwnedIds(obj)) {
     if (child === to || canReach(objects, child, to, visited)) {
       _reachCache[key] = true;
       return true;
@@ -86,9 +86,9 @@ export function canReach(objects: TraceData, from: string, to: string, visited: 
   return false;
 }
 
-export function isPinnedRoot(uuid: string): boolean {
+export function isPinnedRoot(id: string): boolean {
   if (!stateTraceData) return false;
-  const obj = stateTraceData[uuid];
+  const obj = stateTraceData[id];
   if (!obj) return false;
   return pinnedRootClasses.has(getClassName(obj.ref));
 }
@@ -124,31 +124,31 @@ export function buildEffectiveParentMap(
 }
 
 export function findRoots(objects: TraceData, epm: EffectiveParentMap): string[] {
-  const allUuids = Object.keys(objects);
-  const roots = allUuids.filter(u => !epm[u] || epm[u].length === 0);
+  const allIds = Object.keys(objects);
+  const roots = allIds.filter(u => !epm[u] || epm[u].length === 0);
 
   const rooted = new Set<string>();
-  function markReachable(uuid: string, visited: Set<string>) {
-    if (visited.has(uuid)) return;
-    visited.add(uuid);
-    rooted.add(uuid);
-    const obj = objects[uuid];
+  function markReachable(id: string, visited: Set<string>) {
+    if (visited.has(id)) return;
+    visited.add(id);
+    rooted.add(id);
+    const obj = objects[id];
     if (!obj) return;
-    for (const child of getOwnedUuids(obj)) {
+    for (const child of getOwnedIds(obj)) {
       if (!objects[child]) continue;
       const childOwns = objects[child].owns;
       const ownsMap = Array.isArray(childOwns) ? {} : (childOwns || {});
-      if (!canReach(objects, child, uuid, new Set()) || uuid in ownsMap) {
+      if (!canReach(objects, child, id, new Set()) || id in ownsMap) {
         markReachable(child, visited);
       }
     }
   }
   for (const r of roots) markReachable(r, new Set());
 
-  for (const uuid of allUuids) {
-    if (!rooted.has(uuid)) {
-      roots.push(uuid);
-      markReachable(uuid, new Set());
+  for (const id of allIds) {
+    if (!rooted.has(id)) {
+      roots.push(id);
+      markReachable(id, new Set());
     }
   }
 
@@ -161,9 +161,9 @@ const IDENTIFIER_ATTRS: Record<string, string> = {
 };
 
 export function findIdentifierPairs(objects: TraceData): [string, string][] {
-  const groups = new Map<string, { uuid: string; process: string }[]>();
+  const groups = new Map<string, { id: string; process: string }[]>();
 
-  for (const [uuid, obj] of Object.entries(objects)) {
+  for (const [id, obj] of Object.entries(objects)) {
     const cls = getClassName(obj.ref);
     const shortCls = cls.includes(".") ? cls.split(".").pop()! : cls;
     const attrKey = IDENTIFIER_ATTRS[shortCls];
@@ -172,7 +172,7 @@ export function findIdentifierPairs(objects: TraceData): [string, string][] {
     if (!idValue) continue;
     const key = cls + ":" + idValue;
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push({ uuid, process: obj.process });
+    groups.get(key)!.push({ id, process: obj.process });
   }
 
   const pairs: [string, string][] = [];
@@ -180,7 +180,7 @@ export function findIdentifierPairs(objects: TraceData): [string, string][] {
     for (let i = 0; i < members.length; i++) {
       for (let j = i + 1; j < members.length; j++) {
         if (members[i].process !== members[j].process) {
-          pairs.push([members[i].uuid, members[j].uuid]);
+          pairs.push([members[i].id, members[j].id]);
         }
       }
     }
@@ -188,10 +188,10 @@ export function findIdentifierPairs(objects: TraceData): [string, string][] {
   return pairs;
 }
 
-export function participatesInOwnership(uuid: string, objects: TraceData, pm: ParentMap): boolean {
-  const obj = objects[uuid];
+export function participatesInOwnership(id: string, objects: TraceData, pm: ParentMap): boolean {
+  const obj = objects[id];
   if (!obj) return false;
-  if (getOwnedUuids(obj).length > 0) return true;
-  if (pm[uuid] && pm[uuid].length > 0) return true;
+  if (getOwnedIds(obj).length > 0) return true;
+  if (pm[id] && pm[id].length > 0) return true;
   return false;
 }

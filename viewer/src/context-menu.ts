@@ -46,9 +46,9 @@ export function initContextMenu(): void {
     e.preventDefault();
 
     const isRef = !!refEl;
-    const uuid = isRef ? refEl.dataset.refTarget : boxEl.dataset.uuid;
-    if (!uuid || !traceData) return;
-    const obj = traceData[uuid];
+    const nodeId = isRef ? refEl.dataset.refTarget : boxEl.dataset.nodeId;
+    if (!nodeId || !traceData) return;
+    const obj = traceData[nodeId];
     if (!obj) return;
     const className = getClassName(obj.ref);
 
@@ -94,16 +94,16 @@ export function initContextMenu(): void {
 
     if (isRef && refEl) {
       const parentBox = refEl.closest(".obj-box") as HTMLElement | null;
-      const parentUuid = parentBox?.dataset.uuid;
+      const parentId = parentBox?.dataset.nodeId;
       const refTarget = refEl.dataset.refTarget;
-      if (parentUuid && refTarget && traceData && traceData[refTarget]) {
-        const isTransferred = ownershipOverrides[refTarget] === parentUuid;
+      if (parentId && refTarget && traceData && traceData[refTarget]) {
+        const isTransferred = ownershipOverrides[refTarget] === parentId;
         items.push({
           label: "Transfer ownership here",
           checked: isTransferred,
           action: () => {
             if (isTransferred) delete ownershipOverrides[refTarget];
-            else ownershipOverrides[refTarget] = parentUuid;
+            else ownershipOverrides[refTarget] = parentId;
             traceData![refTarget].created_by = ownershipOverrides[refTarget] ?? undefined;
             saveConfig();
             buildAndRender();

@@ -73,6 +73,8 @@ function collectReachable(rootId: string, functions: FunctionData): Set<string> 
   return reachable;
 }
 
+export const MODULE_KEY = "__module__";
+
 export function buildObjectMethods(
   functions: FunctionData,
   rootFuncId: string | null,
@@ -99,9 +101,14 @@ export function buildObjectMethods(
   }
 
   const result: Record<string, FuncCallNode[]> = {};
-  for (const [objUuid, fids] of entryPoints) {
-    result[objUuid] = deduplicateGroup(fids, functions, objUuid, 0);
+  for (const [objId, fids] of entryPoints) {
+    result[objId] = deduplicateGroup(fids, functions, objId, 0);
   }
+
+  if (rootFuncId && functions[rootFuncId] && !functions[rootFuncId].bound_to) {
+    result[MODULE_KEY] = deduplicateGroup([rootFuncId], functions, null, 0);
+  }
+
   return result;
 }
 

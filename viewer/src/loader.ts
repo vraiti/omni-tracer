@@ -1,8 +1,8 @@
 import type { TraceData, FunctionData } from "./types";
-import { setTraceData, setTraceFileName, setFunctionData, setObjectMethods, setFuncIndex, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
+import { setTraceData, setTraceFileName, setFunctionData, setObjectMethods, setFuncIndex, setRootFuncId, rootFuncId, loadConfig, applyOwnershipOverrides, saveLastTrace } from "./state";
 import { buildAndRender } from "./render";
 import { updateExcludeBtn, updatePinRootBtn, updateRootOrderBtn, updateCallChainBtn } from "./panels";
-import { buildFuncIndex } from "./functions";
+import { buildFuncIndex, buildObjectMethods } from "./functions";
 
 let loadingEl: HTMLElement;
 
@@ -14,9 +14,12 @@ async function applyTrace(raw: Record<string, unknown>, tracePath: string): Prom
   setTraceData((raw.objects || {}) as TraceData);
   const funcs = (raw.functions || {}) as FunctionData;
   setFunctionData(funcs);
-  setObjectMethods({});
   setFuncIndex(buildFuncIndex(funcs, (raw.objects || {}) as TraceData));
   await loadConfig(tracePath);
+  if (rootFuncId && !funcs[rootFuncId]) {
+    setRootFuncId(null);
+  }
+  setObjectMethods(buildObjectMethods(funcs, rootFuncId));
   applyOwnershipOverrides();
   updateExcludeBtn();
   updatePinRootBtn();

@@ -56,7 +56,7 @@ interface CrossEdge {
   tgtRootId: string;
   srcBoxEl: Element;
   tgtBoxEl: Element;
-  targetUuid: string;
+  targetId: string;
 }
 
 type Face = "top" | "bottom" | "left" | "right";
@@ -203,6 +203,7 @@ function applyRootOrder(entries: RootEntry[]): void {
   }
   const unrankedPartition = maxRank + 1;
   for (const e of entries) {
+    if (e.el.classList.contains("module-box")) continue;
     const cls = getClassName(e.ref);
     if (!(cls in rootOrder)) {
       e.partition = unrankedPartition;
@@ -219,9 +220,9 @@ function collectCrossEdges(entries: RootEntry[]): CrossEdge[] {
   const refEls = hierarchyEl.querySelectorAll(".obj-ref[data-ref-target]");
 
   for (const refEl of refEls) {
-    const targetUuid = (refEl as HTMLElement).dataset.refTarget;
-    if (!targetUuid) continue;
-    const targetEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
+    const targetId = (refEl as HTMLElement).dataset.refTarget;
+    if (!targetId) continue;
+    const targetEl = hierarchyEl.querySelector(`.obj-box[data-node-id="${targetId}"]`);
     if (!targetEl) continue;
     const srcRoot = findRootBox(refEl);
     const tgtRoot = findRootBox(targetEl);
@@ -232,11 +233,11 @@ function collectCrossEdges(entries: RootEntry[]): CrossEdge[] {
 
     const srcBox = refEl.closest(".obj-box");
     if (!srcBox) continue;
-    const key = srcId + ">" + tgtId + ">" + targetUuid;
+    const key = srcId + ">" + tgtId + ">" + targetId;
     if (seen.has(key)) continue;
     seen.add(key);
 
-    edges.push({ srcRootId: srcId, tgtRootId: tgtId, srcBoxEl: srcBox, tgtBoxEl: targetEl, targetUuid });
+    edges.push({ srcRootId: srcId, tgtRootId: tgtId, srcBoxEl: srcBox, tgtBoxEl: targetEl, targetId });
   }
   return edges;
 }
@@ -312,61 +313,61 @@ interface IncomingRef {
 }
 
 interface RootMaps {
-  yByUuid: Record<string, number>;
-  partByUuid: Record<string, number>;
-  incomingByUuid: Record<string, IncomingRef[]>;
-  ipcFaceByUuid: Record<string, AnchorFace>;
+  yById: Record<string, number>;
+  partById: Record<string, number>;
+  incomingById: Record<string, IncomingRef[]>;
+  ipcFaceById: Record<string, AnchorFace>;
 }
 
 function computeIpcFaces(objects: TraceData, processBoxes: NodeListOf<HTMLElement>): Record<string, AnchorFace> {
   const result: Record<string, AnchorFace> = {};
 
   const procBoxIndex = new Map<string, number>();
-  const uuidToProcIdx = new Map<string, number>();
+  const idToProcIdx = new Map<string, number>();
   let idx = 0;
   for (const pb of processBoxes) {
     const container = pb.querySelector(".process-children");
     if (!container) { idx++; continue; }
     procBoxIndex.set(pb.id || String(idx), idx);
-    for (const box of container.querySelectorAll(".obj-box[data-uuid]") as NodeListOf<HTMLElement>) {
-      if (box.dataset.uuid) uuidToProcIdx.set(box.dataset.uuid, idx);
+    for (const box of container.querySelectorAll(".obj-box[data-node-id]") as NodeListOf<HTMLElement>) {
+      if (box.dataset.nodeId) idToProcIdx.set(box.dataset.nodeId, idx);
     }
     idx++;
   }
 
   const pairs = findIdentifierPairs(objects);
-  for (const [uuidA, uuidB] of pairs) {
-    const idxA = uuidToProcIdx.get(uuidA);
-    const idxB = uuidToProcIdx.get(uuidB);
+  for (const [idA, idB] of pairs) {
+    const idxA = idToProcIdx.get(idA);
+    const idxB = idToProcIdx.get(idB);
     if (idxA === undefined || idxB === undefined || idxA === idxB) continue;
     const faceA: AnchorFace = idxB > idxA ? "bottom" : "top";
     const faceB: AnchorFace = idxA > idxB ? "bottom" : "top";
-    result[uuidA] = faceA;
-    result[uuidB] = faceB;
-    propagateToAncestors(uuidA, faceA, processBoxes, result);
-    propagateToAncestors(uuidB, faceB, processBoxes, result);
+    result[idA] = faceA;
+    result[idB] = faceB;
+    propagateToAncestors(idA, faceA, processBoxes, result);
+    propagateToAncestors(idB, faceB, processBoxes, result);
   }
 
   return result;
 }
 
 function propagateToAncestors(
-  uuid: string, face: AnchorFace,
+  id: string, face: AnchorFace,
   processBoxes: NodeListOf<HTMLElement>,
   result: Record<string, AnchorFace>,
 ): void {
-  const el = document.querySelector(`.obj-box[data-uuid="${uuid}"]`);
+  const el = document.querySelector(`.obj-box[data-node-id="${id}"]`);
   if (!el) return;
   let node = el.parentElement?.closest(".obj-box") as HTMLElement | null;
   while (node) {
-    const parentUuid = node.dataset.uuid;
-    if (!parentUuid) break;
+    const parentId = node.dataset.nodeId;
+    if (!parentId) break;
     let isRoot = false;
     for (const pb of processBoxes) {
       if (node.parentElement === pb.querySelector(".process-children")) { isRoot = true; break; }
     }
     if (isRoot) break;
-    if (!(parentUuid in result)) result[parentUuid] = face;
+    if (!(parentId in result)) result[parentId] = face;
     node = node.parentElement?.closest(".obj-box") as HTMLElement | null;
   }
 }
@@ -376,19 +377,20 @@ function rearrangeChildren(container: HTMLElement, ipcFaces: Record<string, Anch
     ":scope > .obj-box"
   ) as NodeListOf<HTMLElement>;
 
-  const maps: RootMaps = { yByUuid: {}, partByUuid: {}, incomingByUuid: {}, ipcFaceByUuid: ipcFaces };
+  const maps: RootMaps = { yById: {}, partById: {}, incomingById: {}, ipcFaceById: ipcFaces };
   for (const rb of rootBoxes) {
     const y = rb.offsetTop;
     const part = parseInt(rb.dataset.row || "0", 10);
-    const uuid = rb.dataset.uuid;
-    if (uuid) {
-      maps.yByUuid[uuid] = y;
-      maps.partByUuid[uuid] = part;
+    const nodeId = rb.dataset.nodeId;
+    if (nodeId) {
+      maps.yById[nodeId] = y;
+      maps.partById[nodeId] = part;
     }
-    for (const inner of rb.querySelectorAll(".obj-box[data-uuid]") as NodeListOf<HTMLElement>) {
-      if (inner.dataset.uuid) {
-        maps.yByUuid[inner.dataset.uuid] = y;
-        maps.partByUuid[inner.dataset.uuid] = part;
+    for (const inner of rb.querySelectorAll(".obj-box[data-node-id]") as NodeListOf<HTMLElement>) {
+      const innerId = inner.dataset.nodeId;
+      if (innerId) {
+        maps.yById[innerId] = y;
+        maps.partById[innerId] = part;
       }
     }
   }
@@ -401,15 +403,15 @@ function rearrangeChildren(container: HTMLElement, ipcFaces: Record<string, Anch
     const tid = refEl.dataset.refTarget;
     if (!tid) continue;
     const srcRoot = findRootBox(refEl);
-    const tgtEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${tid}"]`);
+    const tgtEl = hierarchyEl.querySelector(`.obj-box[data-node-id="${tid}"]`);
     if (!tgtEl) continue;
     const tgtRoot = findRootBox(tgtEl);
     if (!srcRoot || !tgtRoot || srcRoot === tgtRoot) continue;
     const srcInfo = rootElToInfo.get(srcRoot);
     const tgtInfo = rootElToInfo.get(tgtRoot);
     if (!srcInfo || !tgtInfo) continue;
-    if (!maps.incomingByUuid[tid]) maps.incomingByUuid[tid] = [];
-    maps.incomingByUuid[tid].push({ srcPart: srcInfo.part });
+    if (!maps.incomingById[tid]) maps.incomingById[tid] = [];
+    maps.incomingById[tid].push({ srcPart: srcInfo.part });
   }
 
   for (const rb of rootBoxes) {
@@ -440,11 +442,11 @@ function sortLevel(
     } else if (child.classList.contains("obj-box")) {
       const childFace = sortLevel(child, rootY, srcPart, maps, false);
       let face = childFace;
-      const boxUuid = child.dataset.uuid;
-      if (boxUuid && boxUuid in maps.ipcFaceByUuid && face === null) {
-        face = maps.ipcFaceByUuid[boxUuid];
+      const boxId = child.dataset.nodeId;
+      if (boxId && boxId in maps.ipcFaceById && face === null) {
+        face = maps.ipcFaceById[boxId];
       }
-      const incoming = boxUuid ? maps.incomingByUuid[boxUuid] : undefined;
+      const incoming = boxId ? maps.incomingById[boxId] : undefined;
       if (incoming && incoming.length > 0) {
         const aboveCount = incoming.filter(r => r.srcPart < srcPart).length;
         const belowCount = incoming.filter(r => r.srcPart > srcPart).length;
@@ -529,9 +531,9 @@ function classifyRefFace(
 ): AnchorFace | null {
   const tid = ref.dataset.refTarget;
   if (!tid) return null;
-  const ty = maps.yByUuid[tid];
+  const ty = maps.yById[tid];
   if (ty === undefined || ty === rootY) return null;
-  const tgtPart = maps.partByUuid[tid] ?? srcPart;
+  const tgtPart = maps.partById[tid] ?? srcPart;
   if (tgtPart === srcPart) return null;
   return tgtPart < srcPart ? "top" : "bottom";
 }
@@ -561,7 +563,7 @@ interface RoutedEdge {
   tgtEl: Element;
   srcRoot: HTMLElement;
   tgtRoot: HTMLElement;
-  targetUuid: string;
+  targetId: string;
   srcPartition: number;
   tgtPartition: number;
   srcRootId: string;
@@ -603,9 +605,9 @@ function drawEdges(): Map<number, number> {
   const seen = new Set<string>();
 
   for (const refEl of refEls) {
-    const targetUuid = (refEl as HTMLElement).dataset.refTarget;
-    if (!targetUuid) continue;
-    const targetEl = hierarchyEl.querySelector(`.obj-box[data-uuid="${targetUuid}"]`);
+    const targetId = (refEl as HTMLElement).dataset.refTarget;
+    if (!targetId) continue;
+    const targetEl = hierarchyEl.querySelector(`.obj-box[data-node-id="${targetId}"]`);
     if (!targetEl) continue;
     const srcRoot = findRootBox(refEl);
     const tgtRoot = findRootBox(targetEl);
@@ -614,8 +616,8 @@ function drawEdges(): Map<number, number> {
 
     const srcId = rootElToId.get(srcRoot) || "";
     const tgtId = rootElToId.get(tgtRoot) || "";
-    const parentUuid = (refEl as HTMLElement).closest(".obj-box")?.getAttribute("data-uuid") || "";
-    const key = parentUuid + ">" + targetUuid;
+    const parentId = (refEl as HTMLElement).closest(".obj-box")?.getAttribute("data-node-id") || "";
+    const key = parentId + ">" + targetId;
     if (seen.has(key)) continue;
     seen.add(key);
 
@@ -624,7 +626,7 @@ function drawEdges(): Map<number, number> {
       tgtEl: targetEl,
       srcRoot,
       tgtRoot,
-      targetUuid,
+      targetId,
       srcPartition: rootElToPartition.get(srcRoot) || 0,
       tgtPartition: rootElToPartition.get(tgtRoot) || 0,
       srcRootId: srcId,
@@ -721,7 +723,7 @@ function drawEdges(): Map<number, number> {
       const face = resolveEdgeFace(el, isSource, edge);
       if (face !== "top" && face !== "bottom") continue;
       const root = isSource ? edge.srcRoot : edge.tgtRoot;
-      const rootId = (root as HTMLElement).dataset.uuid || "";
+      const rootId = (root as HTMLElement).dataset.nodeId || "";
       const key = rootId + ":" + face;
       if (!rootFaceSlots.has(key)) rootFaceSlots.set(key, []);
       const elSlots = slotPositions.get(el);
@@ -848,7 +850,7 @@ function drawEdges(): Map<number, number> {
     const tgtRootFaceY = tgtFace === "top" ? tgtRootRect.y : tgtRootRect.y + tgtRootRect.h;
 
     if (Math.abs(start.x - end.x) < 1 && Math.abs(srcRootFaceY - tgtRootFaceY) < 1) {
-      paths.push({ pts: [start, end], targetUuid: edge.targetUuid, id: "edge_" + i });
+      paths.push({ pts: [start, end], targetId: edge.targetId, id: "edge_" + i });
       continue;
     }
 
@@ -858,7 +860,7 @@ function drawEdges(): Map<number, number> {
       const midY = allocateChannelY(gapCenterY(edge.srcPartition, edge.tgtPartition), start.x, end.x, gapRow);
       paths.push({
         pts: [start, { x: start.x, y: midY }, { x: end.x, y: midY }, end],
-        targetUuid: edge.targetUuid,
+        targetId: edge.targetId,
         id: "edge_" + i,
       });
     } else {
@@ -893,7 +895,7 @@ function drawEdges(): Map<number, number> {
             { x: end.x, y: tgtRootFaceY },
             end,
           ],
-          targetUuid: edge.targetUuid,
+          targetId: edge.targetId,
           id: "edge_" + i,
         });
       } else {
@@ -916,7 +918,7 @@ function drawEdges(): Map<number, number> {
             { x: end.x, y: midY },
             end,
           ],
-          targetUuid: edge.targetUuid,
+          targetId: edge.targetId,
           id: "edge_" + i,
         });
       }
@@ -964,7 +966,7 @@ function drawPaths(paths: EdgePath[]): void {
     const path = document.createElementNS(svgNs, "path");
     path.setAttribute("d", d);
     path.setAttribute("data-edge-id", p.id);
-    path.setAttribute("data-target-uuid", p.targetUuid);
+    path.setAttribute("data-target-id", p.targetId);
     svg.appendChild(path);
   }
 
@@ -973,9 +975,9 @@ function drawPaths(paths: EdgePath[]): void {
     const scrollLeft = hierarchyEl.scrollLeft || 0;
     const scrollTop = hierarchyEl.scrollTop || 0;
     const pairs = findIdentifierPairs(traceData);
-    for (const [uuidA, uuidB] of pairs) {
-      const elA = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuidA}"]`) as HTMLElement | null;
-      const elB = hierarchyEl.querySelector(`.obj-box[data-uuid="${uuidB}"]`) as HTMLElement | null;
+    for (const [idA, idB] of pairs) {
+      const elA = hierarchyEl.querySelector(`.obj-box[data-node-id="${idA}"]`) as HTMLElement | null;
+      const elB = hierarchyEl.querySelector(`.obj-box[data-node-id="${idB}"]`) as HTMLElement | null;
       if (!elA || !elB) continue;
       const rA = elRect(elA, hRect, scrollLeft, scrollTop);
       const rB = elRect(elB, hRect, scrollLeft, scrollTop);
@@ -999,8 +1001,8 @@ function drawPaths(paths: EdgePath[]): void {
       const path = document.createElementNS(svgNs, "path");
       path.setAttribute("d", d);
       path.classList.add("cross-process-edge");
-      path.setAttribute("data-ipc-a", uuidA);
-      path.setAttribute("data-ipc-b", uuidB);
+      path.setAttribute("data-ipc-a", idA);
+      path.setAttribute("data-ipc-b", idB);
       svg.appendChild(path);
     }
   }
@@ -1013,22 +1015,22 @@ export function clearEdgeSvg(): void {
   if (old) old.remove();
 }
 
-export function highlightEdges(targetUuid: string): void {
+export function highlightEdges(targetId: string): void {
   const svg = document.getElementById("edge-svg");
   if (!svg) return;
-  for (const path of svg.querySelectorAll("path[data-target-uuid]")) {
-    if (path.getAttribute("data-target-uuid") === targetUuid) {
+  for (const path of svg.querySelectorAll("path[data-target-id]")) {
+    if (path.getAttribute("data-target-id") === targetId) {
       path.classList.add("edge-highlight");
     }
   }
   for (const path of svg.querySelectorAll("path.cross-process-edge")) {
     const a = path.getAttribute("data-ipc-a");
     const b = path.getAttribute("data-ipc-b");
-    if (a === targetUuid || b === targetUuid) {
+    if (a === targetId || b === targetId) {
       path.classList.add("edge-highlight");
-      const partner = a === targetUuid ? b : a;
+      const partner = a === targetId ? b : a;
       if (partner) {
-        const box = hierarchyEl.querySelector(`.obj-box[data-uuid="${partner}"]`);
+        const box = hierarchyEl.querySelector(`.obj-box[data-node-id="${partner}"]`);
         if (box) box.classList.add("group-highlight");
         for (const ref of hierarchyEl.querySelectorAll(`.obj-ref[data-ref-target="${partner}"]`)) {
           ref.classList.add("group-highlight");
