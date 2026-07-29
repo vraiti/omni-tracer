@@ -1,6 +1,6 @@
 import {
   traceData, parentMap, effectiveParentMap, creationOrder, collapsedSet,
-  excludedClasses, rootOrder, rootRows, setRendered, markRendered, isRendered,
+  excludedClasses, rootOrder, setRendered, markRendered, isRendered,
   saveConfig,
   setParentMap, setCreationOrder, setEffectiveParentMap,
 } from "./state";
@@ -88,27 +88,14 @@ export function render(): void {
     const children = document.createElement("div");
     children.className = "process-children";
 
-    const rows = buildRows(rootUuids);
+    const sorted = defaultSort(rootUuids);
 
     let hasContent = false;
-    for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-      for (const uuid of rows[rowIdx]) {
-        const el = renderObject(uuid, 0, new Set(), filterText, showIso);
-        if (el) {
-          el.dataset.row = String(rowIdx);
-          el.draggable = true;
-          el.addEventListener("dragstart", e => {
-            e.dataTransfer!.setData("text/plain", uuid);
-            e.dataTransfer!.effectAllowed = "move";
-            el.classList.add("dragging");
-          });
-          el.addEventListener("dragend", () => {
-            el.classList.remove("dragging");
-            for (const hl of document.querySelectorAll(".row-drop-highlight")) hl.remove();
-          });
-          children.appendChild(el);
-          hasContent = true;
-        }
+    for (const uuid of sorted) {
+      const el = renderObject(uuid, 0, new Set(), filterText, showIso);
+      if (el) {
+        children.appendChild(el);
+        hasContent = true;
       }
     }
 
@@ -159,27 +146,6 @@ function defaultSort(uuids: string[]): string[] {
     const ob = getOwnedUuids(traceData![b]).length;
     return ob - oa;
   });
-}
-
-function buildRows(uuids: string[]): string[][] {
-  if (rootRows.length === 0) return [defaultSort(uuids)];
-
-  const available = new Set(uuids);
-  const rows: string[][] = [];
-  for (const savedRow of rootRows) {
-    const row: string[] = [];
-    for (const uuid of savedRow) {
-      if (available.has(uuid)) {
-        row.push(uuid);
-        available.delete(uuid);
-      }
-    }
-    if (row.length > 0) rows.push(row);
-  }
-  if (available.size > 0) {
-    rows.push(defaultSort(Array.from(available)));
-  }
-  return rows;
 }
 
 function highlightGroup(uuid: string): void {

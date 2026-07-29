@@ -8,7 +8,7 @@ import { initContextMenu } from "./context-menu";
 import { getLastTrace, resetConfig } from "./state";
 
 initTooltip();
-initEdges(() => buildAndRender());
+initEdges();
 initRender();
 initPanels();
 initLoader();

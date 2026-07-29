@@ -10,7 +10,6 @@ export let pinnedRootClasses = new Set<string>();
 export let creationOrder: CreationOrder = {};
 export let effectiveParentMap: EffectiveParentMap = {};
 export let rootOrder: Record<string, number> = {};
-export let rootRows: string[][] = [];
 export let ownershipOverrides: Record<string, string> = {};
 
 export function setTraceData(data: TraceData) { traceData = data; }
@@ -19,7 +18,6 @@ export function setParentMap(pm: ParentMap) { parentMap = pm; }
 export function setRendered(r: Record<string, boolean>) { rendered = r; }
 export function setCreationOrder(co: CreationOrder) { creationOrder = co; }
 export function setEffectiveParentMap(ep: EffectiveParentMap) { effectiveParentMap = ep; }
-export function setRootRows(rows: string[][]) { rootRows = rows; }
 export function markRendered(uuid: string) { rendered[uuid] = true; }
 export function isRendered(uuid: string): boolean { return !!rendered[uuid]; }
 
@@ -28,7 +26,6 @@ interface Config {
   excluded?: string[];
   pinnedRoots?: string[];
   rootOrder?: Record<string, number>;
-  rootRows?: string[][];
   ownershipOverrides?: Record<string, string>;
 }
 
@@ -37,7 +34,6 @@ function applyConfig(cfg: Config): void {
   excludedClasses = new Set(cfg.excluded || []);
   pinnedRootClasses = new Set(cfg.pinnedRoots || []);
   rootOrder = cfg.rootOrder || {};
-  rootRows = cfg.rootRows || [];
   ownershipOverrides = cfg.ownershipOverrides || {};
 }
 
@@ -46,7 +42,6 @@ function clearState(): void {
   excludedClasses = new Set();
   pinnedRootClasses = new Set();
   rootOrder = {};
-  rootRows = [];
   ownershipOverrides = {};
 }
 
@@ -74,7 +69,6 @@ export function saveConfig(): void {
     excluded: Array.from(excludedClasses),
     pinnedRoots: Array.from(pinnedRootClasses),
     rootOrder,
-    rootRows,
     ownershipOverrides,
   };
   fetch("/save-config", {

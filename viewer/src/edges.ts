@@ -1,5 +1,5 @@
 import type { Point, Rect, EdgePath } from "./types";
-import { rootRows, setRootRows, saveConfig, traceData, rootOrder } from "./state";
+import { traceData, rootOrder } from "./state";
 import { findIdentifierPairs, getClassName } from "./graph";
 import type { TraceData } from "./types";
 
@@ -10,23 +10,10 @@ const NODE_GAP = 24;
 const ROW_GAP = 48;
 const PROCESS_PAD = 16;
 const CHANNEL_SPACING = 16;
-const DROP_MARGIN = 32;
+const CONTAINER_PAD = 32;
 
-interface RowBound {
-  y: number;
-  h: number;
-  partition: number;
-  uuids: string[];
-}
-
-let rowBoundsPerContainer = new Map<HTMLElement, RowBound[]>();
-
-let onDropRebuild: (() => void) | null = null;
-
-export function initEdges(rebuildCallback: () => void): void {
+export function initEdges(): void {
   hierarchyEl = document.getElementById("hierarchy")!;
-  onDropRebuild = rebuildCallback;
-  initDragDrop();
 }
 
 export function scheduleEdgeLayout(): void {
@@ -148,7 +135,6 @@ function layoutNodes(): void {
     allProcessEntries.push({ entries, partitions, byPartition, container });
   }
 
-  updateRowBounds(allProcessEntries);
   sizeContainers();
 
   const applyPositions = () => {
@@ -168,7 +154,6 @@ function layoutNodes(): void {
         placeNodes(partitions, byPartition, extraGap);
       }
       applyPositions();
-      updateRowBounds(allProcessEntries);
       requestAnimationFrame(() => drawEdges());
     }
   });
@@ -189,7 +174,7 @@ function placeNodes(
   }
   const containerWidth = maxRowWidth + PROCESS_PAD * 2;
 
-  let y = DROP_MARGIN;
+  let y = CONTAINER_PAD;
   for (const p of partitions) {
     const row = byPartition.get(p)!;
     let rowWidth = 0;
@@ -223,183 +208,6 @@ function applyRootOrder(entries: RootEntry[]): void {
       e.partition = unrankedPartition;
     }
   }
-}
-
-function updateRowBounds(allProcessEntries: { entries: RootEntry[]; partitions: number[]; byPartition: Map<number, RootEntry[]>; container: HTMLElement }[]): void {
-  rowBoundsPerContainer = new Map();
-  for (const { partitions, byPartition, container } of allProcessEntries) {
-    const bounds: RowBound[] = [];
-    for (const p of partitions) {
-      const row = byPartition.get(p)!;
-      const y = row[0].y;
-      const maxH = Math.max(...row.map(e => e.h));
-      const uuids = row.map(e => e.el.dataset.uuid || "");
-      bounds.push({ y, h: maxH, partition: p, uuids });
-    }
-    rowBoundsPerContainer.set(container, bounds);
-  }
-}
-
-// ── Drag-and-drop row assignment ────────────────────────────────
-
-function initDragDrop(): void {
-  let highlightEl: HTMLElement | null = null;
-  let activeContainer: HTMLElement | null = null;
-  let scrollRaf = 0;
-
-  const SCROLL_ZONE = 150;
-  const SCROLL_SPEED = 12;
-
-  function autoScroll(clientY: number): void {
-    cancelAnimationFrame(scrollRaf);
-    const vh = window.innerHeight;
-    let delta = 0;
-    if (clientY < SCROLL_ZONE) {
-      delta = -SCROLL_SPEED * (1 - clientY / SCROLL_ZONE);
-    } else if (clientY > vh - SCROLL_ZONE) {
-      delta = SCROLL_SPEED * (1 - (vh - clientY) / SCROLL_ZONE);
-    }
-    if (delta !== 0) {
-      scrollRaf = requestAnimationFrame(function tick() {
-        window.scrollBy(0, delta);
-        scrollRaf = requestAnimationFrame(tick);
-      });
-    }
-  }
-
-  function stopAutoScroll(): void {
-    cancelAnimationFrame(scrollRaf);
-    scrollRaf = 0;
-  }
-
-  function ensureHighlight(container: HTMLElement): HTMLElement {
-    if (activeContainer !== container || !highlightEl || !highlightEl.parentElement) {
-      removeHighlight();
-      highlightEl = document.createElement("div");
-      highlightEl.className = "row-drop-highlight";
-      container.appendChild(highlightEl);
-      activeContainer = container;
-    }
-    return highlightEl;
-  }
-
-  function removeHighlight(): void {
-    if (highlightEl && highlightEl.parentElement) {
-      highlightEl.remove();
-    }
-    highlightEl = null;
-    activeContainer = null;
-  }
-
-  hierarchyEl.addEventListener("dragover", e => {
-    let container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
-    if (!container) {
-      const procBox = (e.target as HTMLElement).closest(".process-box") as HTMLElement | null;
-      if (procBox) container = procBox.querySelector(".process-children") as HTMLElement | null;
-    }
-    if (!container) { removeHighlight(); return; }
-    e.preventDefault();
-    e.dataTransfer!.dropEffect = "move";
-    autoScroll(e.clientY);
-
-    const bounds = rowBoundsPerContainer.get(container);
-    if (!bounds || bounds.length === 0) { removeHighlight(); return; }
-
-    const containerRect = container.getBoundingClientRect();
-    const localY = e.clientY - containerRect.top + container.scrollTop;
-
-    const hl = ensureHighlight(container);
-
-    const first = bounds[0];
-    const last = bounds[bounds.length - 1];
-
-    if (localY < first.y) {
-      hl.style.top = "0";
-      hl.style.height = first.y + "px";
-      hl.className = "row-drop-highlight new-row";
-      hl.dataset.targetRow = "before:0";
-    } else if (localY > last.y + last.h) {
-      hl.style.top = (last.y + last.h) + "px";
-      hl.style.height = DROP_MARGIN + "px";
-      hl.className = "row-drop-highlight new-row";
-      hl.dataset.targetRow = "after:" + (bounds.length - 1);
-    } else {
-      let placed = false;
-      for (let i = 0; i < bounds.length; i++) {
-        const row = bounds[i];
-        const regionTop = i === 0 ? first.y : (bounds[i - 1].y + bounds[i - 1].h + row.y) / 2;
-        const regionBot = i === bounds.length - 1
-          ? last.y + last.h
-          : (row.y + row.h + bounds[i + 1].y) / 2;
-
-        if (localY < regionTop || localY > regionBot) continue;
-
-        hl.style.top = row.y + "px";
-        hl.style.height = row.h + "px";
-        hl.className = "row-drop-highlight";
-        hl.dataset.targetRow = String(i);
-        placed = true;
-        break;
-      }
-      if (!placed) removeHighlight();
-    }
-  });
-
-  hierarchyEl.addEventListener("dragleave", e => {
-    if (!hierarchyEl.contains(e.relatedTarget as Node)) {
-      removeHighlight();
-      stopAutoScroll();
-    }
-  });
-
-  hierarchyEl.addEventListener("drop", e => {
-    e.preventDefault();
-    stopAutoScroll();
-    const uuid = e.dataTransfer?.getData("text/plain");
-    if (!uuid) { removeHighlight(); return; }
-
-    let container = (e.target as HTMLElement).closest(".process-children") as HTMLElement | null;
-    if (!container) {
-      const procBox = (e.target as HTMLElement).closest(".process-box") as HTMLElement | null;
-      if (procBox) container = procBox.querySelector(".process-children") as HTMLElement | null;
-    }
-    if (!container) { removeHighlight(); return; }
-
-    const bounds = rowBoundsPerContainer.get(container);
-    if (!bounds) { removeHighlight(); return; }
-
-    const targetInfo = highlightEl?.dataset.targetRow;
-    removeHighlight();
-    if (!targetInfo) return;
-
-    const newRows = rootRows.map(r => r.filter(u => u !== uuid));
-    const filtered = newRows.filter(r => r.length > 0);
-
-    if (targetInfo === "before:0") {
-      filtered.splice(0, 0, [uuid]);
-    } else if (targetInfo.startsWith("after:")) {
-      filtered.push([uuid]);
-    } else {
-      const idx = parseInt(targetInfo, 10);
-      const row = bounds[idx];
-      if (row) {
-        const targetRow = filtered.find(r => row.uuids.some(u => r.includes(u)));
-        if (targetRow) {
-          targetRow.push(uuid);
-        } else {
-          filtered.push([uuid]);
-        }
-      } else {
-        filtered.push([uuid]);
-      }
-    }
-
-    setRootRows(filtered);
-    saveConfig();
-    if (onDropRebuild) onDropRebuild();
-  });
-
-  document.addEventListener("dragend", stopAutoScroll);
 }
 
 function collectCrossEdges(entries: RootEntry[]): CrossEdge[] {
@@ -717,7 +525,7 @@ function sizeContainers(): void {
       if (b > maxBottom) maxBottom = b;
     }
     container.style.width = (maxRight + PROCESS_PAD) + "px";
-    container.style.height = (maxBottom + DROP_MARGIN) + "px";
+    container.style.height = (maxBottom + CONTAINER_PAD) + "px";
   }
 }
 
