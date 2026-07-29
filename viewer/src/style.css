@@ -84,6 +84,8 @@ body {
   margin-bottom: 12px;
   padding: 0;
   background: #111;
+  width: fit-content;
+  min-width: 100%;
 }
 
 .process-label {
