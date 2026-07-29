@@ -22,6 +22,7 @@ export interface TraceFunction {
   process: string;
   bound_to?: string;
   coroutine?: string;
+  queue_invokes?: string[];
 }
 
 export type FunctionData = Record<string, TraceFunction>;

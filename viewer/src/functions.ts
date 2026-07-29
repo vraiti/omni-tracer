@@ -26,19 +26,40 @@ export interface FuncIndexEntry {
   descendantCount: number;
 }
 
+function allTargets(fn: { invokes: string[]; queue_invokes?: string[] }): string[] {
+  const targets = fn.invokes;
+  const qi = fn.queue_invokes;
+  return qi && qi.length > 0 ? targets.concat(qi) : targets;
+}
+
 export function buildFuncIndex(
   functions: FunctionData,
   objects: Record<string, { ref: string }> | null,
+  entrypoints?: string[] | null,
 ): FuncIndexEntry[] {
   const entries: FuncIndexEntry[] = [];
-  for (const [fid, fn] of Object.entries(functions)) {
-    if (fn.invokes.length === 0) continue;
-    entries.push({
-      fid,
-      label: getFuncLabel(fn.ref, fn.bound_to, objects),
-      descendantCount: countDescendants(fid, functions),
-    });
+
+  if (entrypoints && entrypoints.length > 0) {
+    for (const fid of entrypoints) {
+      const fn = functions[fid];
+      if (!fn) continue;
+      entries.push({
+        fid,
+        label: getFuncLabel(fn.ref, fn.bound_to, objects),
+        descendantCount: countDescendants(fid, functions),
+      });
+    }
+  } else {
+    for (const [fid, fn] of Object.entries(functions)) {
+      if (fn.invokes.length === 0 && !(fn.queue_invokes && fn.queue_invokes.length > 0)) continue;
+      entries.push({
+        fid,
+        label: getFuncLabel(fn.ref, fn.bound_to, objects),
+        descendantCount: countDescendants(fid, functions),
+      });
+    }
   }
+
   entries.sort((a, b) => b.descendantCount - a.descendantCount);
   return entries;
 }
@@ -52,7 +73,7 @@ function countDescendants(fid: string, functions: FunctionData): number {
     seen.add(cur);
     const fn = functions[cur];
     if (fn) {
-      for (const child of fn.invokes) stack.push(child);
+      for (const child of allTargets(fn)) stack.push(child);
     }
   }
   return seen.size - 1;
@@ -67,7 +88,7 @@ function collectReachable(rootId: string, functions: FunctionData): Set<string> 
     reachable.add(cur);
     const fn = functions[cur];
     if (fn) {
-      for (const child of fn.invokes) stack.push(child);
+      for (const child of allTargets(fn)) stack.push(child);
     }
   }
   return reachable;
@@ -83,7 +104,7 @@ export function buildObjectMethods(
 
   const callerOf = new Map<string, string>();
   for (const [fid, fn] of Object.entries(functions)) {
-    for (const child of fn.invokes) {
+    for (const child of allTargets(fn)) {
       callerOf.set(child, fid);
     }
   }
@@ -137,8 +158,8 @@ function deduplicateGroup(
     const isCrossObject = boundTo !== null && boundTo !== contextObj;
 
     let children: FuncCallNode[] = [];
-    if (!isCrossObject && depth < MAX_DEPTH && fn.invokes.length > 0) {
-      children = deduplicateGroup(fn.invokes, functions, contextObj, depth + 1);
+    if (!isCrossObject && depth < MAX_DEPTH && allTargets(fn).length > 0) {
+      children = deduplicateGroup(allTargets(fn), functions, contextObj, depth + 1);
     }
 
     nodes.push({

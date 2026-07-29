@@ -14,7 +14,8 @@ async function applyTrace(raw: Record<string, unknown>, tracePath: string): Prom
   setTraceData((raw.objects || {}) as TraceData);
   const funcs = (raw.functions || {}) as FunctionData;
   setFunctionData(funcs);
-  setFuncIndex(buildFuncIndex(funcs, (raw.objects || {}) as TraceData));
+  const entrypoints = (raw.entrypoints || null) as string[] | null;
+  setFuncIndex(buildFuncIndex(funcs, (raw.objects || {}) as TraceData, entrypoints));
   await loadConfig(tracePath);
   if (rootFuncId && !funcs[rootFuncId]) {
     setRootFuncId(null);

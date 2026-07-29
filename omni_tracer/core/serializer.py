@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from omni_tracer.analysis.ast_flow import get_function_flow_from_ref
+from omni_tracer.analysis.dependency_graph import build_dependency_graph
 from omni_tracer.analysis.value_flow import resolve_value_flows
 from omni_tracer.core.graph import TraceGraph
 from omni_tracer.core.node import FunctionNode
@@ -32,6 +33,7 @@ def resolve_and_enrich(trace_path: str | Path) -> None:
 
     data["value_flows"] = [e.to_dict() for e in value_edges]
     data["function_flows"] = {k: v.to_dict() for k, v in flows.items()}
+    build_dependency_graph(data)
 
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
