@@ -119,6 +119,8 @@ class CallSite:
 
 
 _cache: dict[int, FunctionFlow | None] = {}
+_ref_cache: dict[str, FunctionFlow | None] = {}
+_file_ast_cache: dict[str, ast.Module | None] = {}
 
 
 def get_function_flow(code: types.CodeType, ref: str = "") -> FunctionFlow | None:
@@ -127,6 +129,14 @@ def get_function_flow(code: types.CodeType, ref: str = "") -> FunctionFlow | Non
         return _cache[code_id]
     flow = _build_flow(code, ref)
     _cache[code_id] = flow
+    return flow
+
+
+def get_function_flow_from_ref(ref: str) -> FunctionFlow | None:
+    if ref in _ref_cache:
+        return _ref_cache[ref]
+    flow = _build_flow_from_ref(ref)
+    _ref_cache[ref] = flow
     return flow
 
 
@@ -152,6 +162,55 @@ def _build_flow(code: types.CodeType, ref: str) -> FunctionFlow | None:
     builder = _FlowBuilder(ref or code.co_qualname, func_def)
     builder.build()
     return builder.flow
+
+
+def _build_flow_from_ref(ref: str) -> FunctionFlow | None:
+    parts = ref.split(":")
+    if len(parts) != 2:
+        return None
+    filename, qualname = parts
+    tree = _get_file_ast(filename)
+    if tree is None:
+        return None
+    func_def = _find_func_by_qualname(tree, qualname)
+    if func_def is None:
+        return None
+    builder = _FlowBuilder(ref, func_def)
+    builder.build()
+    return builder.flow
+
+
+def _get_file_ast(filename: str) -> ast.Module | None:
+    if filename in _file_ast_cache:
+        return _file_ast_cache[filename]
+    try:
+        with open(filename) as f:
+            source = f.read()
+        tree = ast.parse(source, filename)
+    except (OSError, SyntaxError):
+        tree = None
+    _file_ast_cache[filename] = tree
+    return tree
+
+
+def _find_func_by_qualname(
+    tree: ast.Module, qualname: str,
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    parts = qualname.split(".")
+    scope: ast.AST = tree
+    for i, part in enumerate(parts):
+        found = None
+        for node in ast.iter_child_nodes(scope):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name == part:
+                    found = node
+                    break
+        if found is None:
+            return None
+        scope = found
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return scope
+    return None
 
 
 def _expr_to_str(node: ast.expr) -> str:

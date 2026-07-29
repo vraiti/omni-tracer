@@ -104,6 +104,13 @@ def main() -> None:
     )
     proc.start()
     proc.join()
+
+    if args.value_flow and os.path.exists(args.output):
+        from omni_tracer.core.serializer import resolve_and_enrich
+        print(f"Resolving AST dataflow for {args.output}...")
+        resolve_and_enrich(args.output)
+        print("AST dataflow resolution complete.")
+
     sys.exit(proc.exitcode or 0)
 
 
