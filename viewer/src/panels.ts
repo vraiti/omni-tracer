@@ -181,6 +181,7 @@ function populateRootOrderPanel(): void {
   const counts = getRootClassCounts();
   const search = rootOrderFilter.value.toLowerCase();
   const sorted = Object.entries(counts)
+    .filter(([name]) => !excludedClasses.has(name))
     .filter(([name]) => !search || name.toLowerCase().includes(search))
     .sort((a, b) => {
       const aRanked = a[0] in rootOrder ? 0 : 1;
