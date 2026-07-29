@@ -205,4 +205,5 @@ class TraceGraph:
                 attrs=v.get("attrs", {}),
             )
             graph.objects[k] = node
+        graph.queue_events = data.get("queue_events", [])
         return graph
