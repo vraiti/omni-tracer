@@ -140,6 +140,10 @@ body {
   align-items: start;
 }
 
+.child-row.anchored-bottom {
+  margin-top: auto;
+}
+
 .mid-layout {
   display: flex;
   gap: 4px;
