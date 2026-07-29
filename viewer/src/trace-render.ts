@@ -196,19 +196,3 @@ function drawEdges(
   svgEl.setAttribute("width", String(container.scrollWidth));
   svgEl.setAttribute("height", String(container.scrollHeight));
 }
-
-export function findRootCandidates(functions: FunctionData): string[] {
-  const called = new Set<string>();
-  for (const fn of Object.values(functions)) {
-    for (const child of fn.invokes) {
-      called.add(child);
-    }
-  }
-  const roots: string[] = [];
-  for (const [fid, fn] of Object.entries(functions)) {
-    if (!called.has(fid) && fn.invokes.length > 0) {
-      roots.push(fid);
-    }
-  }
-  return roots;
-}

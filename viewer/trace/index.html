@@ -12,12 +12,12 @@
     Open Trace
     <input type="file" id="file-input" accept=".json">
   </label>
-  <label>
-    Root:
-    <select id="root-select">
-      <option value="">-- load a trace --</option>
-    </select>
-  </label>
+  <div style="position: relative; display: inline-block;">
+    <input type="text" id="root-input" placeholder="Search for a function...">
+    <div id="root-dropdown" class="dropdown-panel hidden">
+      <div id="root-list"></div>
+    </div>
+  </div>
   <span id="stats"></span>
 </div>
 
