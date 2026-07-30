@@ -55,21 +55,21 @@ def main():
         help="Model to serve",
     )
     parser.add_argument(
-        "--with-query",
-        action="store_true",
-        help="Send a default request to the model before terminating",
-    )
-    parser.add_argument(
         "--taint-notrace",
         action="append",
-        default=None,
+        default=["_dummy_run"],
         help="Suppress tracing inside functions matching this qualname substring (repeatable)",
     )
     parser.add_argument(
         "--prefix",
         action="append",
         default=None,
-        help="Scope prefix for tracing (repeatable; omit to auto-detect)",
+        help="Scope prefix for tracing (repeatable; omit to auto-detect vllm_omni, vllm, janus)",
+    )
+    parser.add_argument(
+        "--no-query",
+        action="store_true",
+        help="Skip sending a default request before terminating",
     )
     args = parser.parse_args()
 
@@ -84,9 +84,22 @@ def main():
             taint_args.extend(["--taint-notrace", pat])
 
     prefix_args = []
-    if args.prefix:
-        for p in args.prefix:
-            prefix_args.extend(["--prefix", p])
+    prefixes = args.prefix
+    if not prefixes:
+        import importlib
+        prefixes = []
+        for pkg in ("vllm_omni", "vllm", "janus"):
+            try:
+                mod = importlib.import_module(pkg)
+                path = getattr(mod, "__path__", None)
+                if path:
+                    prefixes.extend(path)
+                elif hasattr(mod, "__file__") and mod.__file__:
+                    prefixes.append(os.path.dirname(mod.__file__))
+            except ImportError:
+                pass
+    for p in prefixes:
+        prefix_args.extend(["--prefix", p])
 
     cmd = [
         sys.executable, "-m", "tracer",
@@ -106,7 +119,7 @@ def main():
             server.wait()
             sys.exit(server.returncode or 1)
 
-        if args.with_query:
+        if not args.no_query:
             query = model.get("query")
             if not query:
                 print(f"No default query defined for {args.model}", file=sys.stderr)

@@ -154,13 +154,13 @@ pub struct IpcRecord {
     #[pyo3(get)]
     pub name: String,
     #[pyo3(get)]
-    pub obj_idx: i32,
+    pub obj_idx: i64,
 }
 
 #[pymethods]
 impl IpcRecord {
     #[new]
-    pub fn new(name: String, obj_idx: i32) -> Self {
+    pub fn new(name: String, obj_idx: i64) -> Self {
         Self { name, obj_idx }
     }
 

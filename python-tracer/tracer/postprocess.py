@@ -424,14 +424,12 @@ def merge_graphs(
 
 def resolve_ipc_edges(
     c: Any,
-    objects: dict[tuple[int, int], int],
 ) -> list[DataflowEdge]:
     from collections import defaultdict
 
     channels: dict[str, list[tuple[int, int]]] = defaultdict(list)
-    for pid, name, obj_idx in c.execute("SELECT pid, name, obj_idx FROM ipc"):
-        call_id = objects.get((pid, obj_idx))
-        if call_id is not None:
+    for pid, name, call_id in c.execute("SELECT pid, name, obj_idx FROM ipc"):
+        if call_id > 0:
             channels[name].append((pid, call_id))
 
     edges: list[DataflowEdge] = []
@@ -552,7 +550,7 @@ def postprocess(db_path: str) -> None:
         n_resolved += 1
 
     merged = merge_graphs(all_edges, calls, members, objects)
-    ipc_edges = resolve_ipc_edges(c, objects)
+    ipc_edges = resolve_ipc_edges(c)
     merged.extend(ipc_edges)
 
     c.executescript("""

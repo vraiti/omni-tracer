@@ -110,6 +110,7 @@ class _TracedTarget:
             PathFilter,
             install,
             install_thread,
+            load_ast_data,
             uninstall,
         )
         from tracer.ast_index import AstIndex
@@ -126,14 +127,15 @@ class _TracedTarget:
         db = Database()
 
         from tracer.__main__ import TraceHook
-        hook = TraceHook(db, ast_index, path_filter)
+        hook = TraceHook(db, path_filter)
         ownership = OwnershipHook(db, hook)
-        hook.set_ownership_hook(ownership)
+
+        load_ast_data(ast_index._func_to_id, ast_index._control_flow_lines)
 
         patch_message_queue(db)
 
         prefixes = list(path_filter._prefixes)
-        install(hook, prefixes, taint_patterns=self.taint_patterns)
+        install(hook, prefixes, db, ownership, path_filter, taint_patterns=self.taint_patterns)
 
         _original_run = threading.Thread.run
         def _patched_run(self_thread: threading.Thread) -> None:
@@ -151,7 +153,7 @@ class _TracedTarget:
             uninstall()
             try:
                 from tracer.__main__ import serialize
-                serialize(db, ast_index, output_file)
+                serialize(db, output_file)
                 if not self.no_postprocess:
                     postprocess(output_file)
             except Exception:

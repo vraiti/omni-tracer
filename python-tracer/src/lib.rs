@@ -30,6 +30,8 @@ fn _tracer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hook::get_call_id, m)?)?;
     m.add_function(wrap_pyfunction!(hook::set_call_id, m)?)?;
     m.add_function(wrap_pyfunction!(hook::current_record, m)?)?;
+    m.add_function(wrap_pyfunction!(hook::load_ast_data, m)?)?;
+    m.add_function(wrap_pyfunction!(hook::get_func_map, m)?)?;
     m.add_function(wrap_pyfunction!(containers::wrap_container, m)?)?;
     Ok(())
 }

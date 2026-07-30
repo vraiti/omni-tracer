@@ -14,8 +14,10 @@ from tracer._tracer import (
     OwnershipHook,
     PathFilter,
     get_call_id,
+    get_func_map,
     install,
     install_thread,
+    load_ast_data,
     uninstall,
 )
 from tracer.ast_index import AstIndex
@@ -28,87 +30,13 @@ class TraceHook:
     def __init__(
         self,
         db: Database,
-        ast_index: AstIndex,
         path_filter: PathFilter,
     ) -> None:
         self.db = db
-        self.ast_index = ast_index
         self.path_filter = path_filter
-        self._ownership_hook: OwnershipHook | None = None
-
-    def set_ownership_hook(self, hook: OwnershipHook) -> None:
-        self._ownership_hook = hook
-
-    def _c_make_record(self, frame: Any, call_id: int, caller_id: int, call_lineno: int) -> Any:
-        code = frame.f_code
-        ref = self.ast_index.ref_from_code(code)
-        function_id = self.ast_index.get_function_id(ref)
-
-        self_obj = frame.f_locals.get("self")
-        obj_id = 0
-        if self_obj is not None:
-            obj_id = getattr(self_obj, "__tr_idx", 0)
-
-        rec = CallRecord(
-            call_id=call_id,
-            function_id=function_id,
-            caller_id=caller_id,
-            call_lineno=call_lineno,
-            obj_id=obj_id,
-        )
-        self.db.add_call(rec)
-
-        if code.co_name == "__init__" and self_obj is not None:
-            self._handle_init(frame, code, self_obj, call_id)
-            obj_id = getattr(self_obj, "__tr_idx", 0)
-            rec.obj_id = obj_id
-
-        cf_lines = self.ast_index.get_control_flow_lines(ref)
-        return (rec, cf_lines)
-
-    def _c_handle_oos_init(self, frame: Any, call_id: int, caller_id: int, call_lineno: int) -> Any:
-        code = frame.f_code
-        self_obj = frame.f_locals.get("self")
-        if self_obj is None:
-            return None
-        if not self.path_filter.is_tracked_class(type(self_obj)):
-            return None
-
-        ref = self.ast_index.ref_from_code(code)
-        function_id = self.ast_index.get_function_id(ref)
-        obj_id = getattr(self_obj, "__tr_idx", 0)
-
-        rec = CallRecord(
-            call_id=call_id,
-            function_id=function_id,
-            caller_id=caller_id,
-            call_lineno=call_lineno,
-            obj_id=obj_id,
-        )
-        self.db.add_call(rec)
-
-        self._handle_init(frame, code, self_obj, call_id)
-        obj_id = getattr(self_obj, "__tr_idx", 0)
-        rec.obj_id = obj_id
-
-        cf_lines = self.ast_index.get_control_flow_lines(ref)
-        return (rec, cf_lines)
-
-    def _handle_init(self, frame: Any, code: Any, self_obj: Any, call_id: int) -> None:
-        cls = type(self_obj)
-        cls_code = getattr(getattr(cls, "__init__", None), "__code__", None)
-        if cls_code is not code:
-            return
-
-        obj_rec = ObjectRecord(call_id=call_id)
-        obj_idx = self.db.add_object(obj_rec)
-        object.__setattr__(self_obj, "__tr_idx", obj_idx)
-
-        if self._ownership_hook is not None:
-            self._ownership_hook.patch_class(cls)
 
 
-def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
+def serialize(db: Database, output: str) -> None:
     if os.path.exists(output):
         os.remove(output)
     conn = sqlite3.connect(output)
@@ -155,7 +83,7 @@ def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
 
     c.execute("INSERT INTO meta VALUES (?)", (os.getpid(),))
 
-    func_map = {v: k for k, v in ast_index._func_to_id.items()}
+    func_map = {v: k for k, v in get_func_map().items()}
     c.executemany(
         "INSERT INTO functions VALUES (?, ?)",
         func_map.items(),
@@ -217,15 +145,16 @@ def main() -> None:
     ast_index.preprocess(path_filter)
 
     db = Database()
-    hook = TraceHook(db, ast_index, path_filter)
+    hook = TraceHook(db, path_filter)
     ownership = OwnershipHook(db, hook)
-    hook.set_ownership_hook(ownership)
+
+    load_ast_data(ast_index._func_to_id, ast_index._control_flow_lines)
 
     patch_message_queue(db)
 
     # Install trace function
     prefixes = list(path_filter._prefixes)
-    install(hook, prefixes, taint_patterns=args.taint_notrace)
+    install(hook, prefixes, db, ownership, path_filter, taint_patterns=args.taint_notrace)
 
     # Monkey-patch multiprocessing to trace child processes
     proc_hook = ProcessHook(
@@ -267,7 +196,7 @@ def main() -> None:
         uninstall()
         proc_hook.uninstall()
         proc_hook.join_children()
-        serialize(db, ast_index, args.output)
+        serialize(db, args.output)
 
         child_dbs = proc_hook.child_trace_paths()
         if child_dbs:

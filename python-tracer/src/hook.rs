@@ -2,10 +2,13 @@ use pyo3::prelude::*;
 use pyo3::ffi;
 use pyo3::types::{PyByteArray, PySet};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::frame;
-use crate::records::CallRecord;
+use crate::filter::PathFilter;
+use crate::ownership::OwnershipHook;
+use crate::records::{CallRecord, Database, ObjectRecord};
 
 // ---------------------------------------------------------------------------
 // Global state
@@ -16,6 +19,9 @@ static ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 static mut HOOK_OBJ: *mut ffi::PyObject = std::ptr::null_mut();
+static mut DB_OBJ: Option<Py<Database>> = None;
+static mut OWNERSHIP_OBJ: Option<Py<OwnershipHook>> = None;
+static mut FILTER_OBJ: Option<Py<PathFilter>> = None;
 
 // Cached scope prefixes (set once at install, read from trace_func)
 static mut PREFIXES: Option<Vec<(String, usize)>> = None;
@@ -25,6 +31,15 @@ static mut SCOPE_CACHE: Option<std::collections::HashMap<usize, bool>> = None;
 
 // Taint patterns: qualname substrings that suppress tracing
 static mut TAINT_PATTERNS: Option<Vec<String>> = None;
+
+// AST data: function IDs and control flow bitsets, transferred from Python at startup
+struct AstData {
+    func_to_id: HashMap<String, i32>,
+    next_func_id: i32,
+    cf_bits: HashMap<String, Vec<u64>>,
+    cf_max: HashMap<String, i32>,
+}
+static mut AST_DATA: Option<AstData> = None;
 
 // ---------------------------------------------------------------------------
 // Thread-local frame stack
@@ -220,71 +235,87 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                 name_size as usize,
             ));
             if name == "__init__" {
-                // Delegate to Python: hook._c_handle_oos_init(frame, call_id, caller_id, call_lineno)
-                let call_id = NEXT_CALL_ID.fetch_add(1, Ordering::Relaxed);
+                let (self_obj, _) = get_self_obj_id(py_frame);
+                if let Some(self_ptr) = self_obj {
+                    let should_trace = Python::with_gil(|py| {
+                        if let Some(ref filter) = FILTER_OBJ {
+                            let self_bound = Bound::from_borrowed_ptr(py, self_ptr);
+                            let cls = self_bound.get_type();
+                            filter.borrow(py).is_tracked_class(&cls)
+                        } else {
+                            false
+                        }
+                    });
 
-                let mut caller_id: u64 = 0;
-                let mut call_lineno: std::ffi::c_int = 0;
-                let back = ffi::PyFrame_GetBack(py_frame as *mut ffi::PyFrameObject);
-                if !back.is_null() {
-                    caller_id = frame::get_call_id(back as *mut ffi::PyObject);
-                    call_lineno = ffi::PyFrame_GetLineNumber(back);
-                    ffi::Py_DECREF(back as *mut ffi::PyObject);
-                }
+                    if should_trace {
+                        let call_id = NEXT_CALL_ID.fetch_add(1, Ordering::Relaxed);
 
-                let hook = HOOK_OBJ;
-                if !hook.is_null() {
-                    let method = std::ffi::CString::new("_c_handle_oos_init").unwrap();
-                    let fmt = std::ffi::CString::new("(OKKi)").unwrap();
-                    let result = ffi::PyObject_CallMethod(
-                        hook,
-                        method.as_ptr(),
-                        fmt.as_ptr(),
-                        py_frame,
-                        call_id,
-                        caller_id,
-                        call_lineno,
-                    );
-                    if result.is_null() {
-                        ffi::PyErr_Clear();
-                    } else if result != ffi::Py_None() {
-                        // Got (record, cf_lines) back — push frame
-                        frame::set_call_id(py_frame, call_id);
-                        frame::set_trace_lines(py_frame, 1);
+                        let mut caller_id: u64 = 0;
+                        let mut call_lineno: std::ffi::c_int = 0;
+                        let back = ffi::PyFrame_GetBack(py_frame as *mut ffi::PyFrameObject);
+                        if !back.is_null() {
+                            caller_id = frame::get_call_id(back as *mut ffi::PyObject);
+                            call_lineno = ffi::PyFrame_GetLineNumber(back);
+                            ffi::Py_DECREF(back as *mut ffi::PyObject);
+                        }
 
-                        Python::with_gil(|py| {
-                            let tuple = Bound::from_borrowed_ptr(py, result);
-                            if let (Ok(record), Ok(cf_set)) = (
-                                tuple.get_item(0),
-                                tuple.get_item(1),
-                            ) {
-                                let record_py: Py<CallRecord> =
-                                    record.extract().unwrap();
-                                let (cf_bits, cf_max) =
-                                    if let Ok(s) = cf_set.downcast::<PySet>() {
-                                        set_to_bitset(py, s)
+                        // Extract qualname for ref_str
+                        let qualname_obj = (*code).co_qualname;
+                        let mut qn_size: ffi::Py_ssize_t = 0;
+                        let qn_ptr = ffi::PyUnicode_AsUTF8AndSize(qualname_obj, &mut qn_size);
+                        if !qn_ptr.is_null() {
+                            let qualname = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                                qn_ptr as *const u8,
+                                qn_size as usize,
+                            ));
+                            let ref_str = format!("{}:{}", filename, qualname);
+                            let function_id = get_or_assign_function_id(&ref_str);
+
+                            let obj_id = 0i32;
+
+                            frame::set_call_id(py_frame, call_id);
+                            frame::set_trace_lines(py_frame, 1);
+
+                            Python::with_gil(|py| {
+                                let db = DB_OBJ.as_ref().unwrap();
+                                let rec = Py::new(py, CallRecord::new(py, call_id, function_id, caller_id as u64, call_lineno, obj_id)).unwrap();
+                                let _ = db.borrow(py).add_call(py, rec.clone_ref(py));
+
+                                handle_init_rust(py, self_ptr, code, call_id);
+                                let tr_idx_key = std::ffi::CStr::from_bytes_with_nul_unchecked(b"__tr_idx\0");
+                                let tr_idx = ffi::PyObject_GetAttrString(self_ptr, tr_idx_key.as_ptr());
+                                if !tr_idx.is_null() {
+                                    let new_id = ffi::PyLong_AsLong(tr_idx) as i32;
+                                    ffi::Py_DECREF(tr_idx);
+                                    if new_id != -1 || ffi::PyErr_Occurred().is_null() {
+                                        rec.borrow_mut(py).obj_id = new_id;
                                     } else {
-                                        (Vec::new(), -1)
-                                    };
+                                        ffi::PyErr_Clear();
+                                    }
+                                } else {
+                                    ffi::PyErr_Clear();
+                                }
+
+                                let data = AST_DATA.as_ref().unwrap();
+                                let (cf_bits_vec, cf_max_val) = if let Some(bits) = data.cf_bits.get(&ref_str) {
+                                    let max = *data.cf_max.get(&ref_str).unwrap_or(&-1);
+                                    (bits.clone(), max)
+                                } else {
+                                    (Vec::new(), -1)
+                                };
+
                                 FRAME_STACK.with(|fs| {
                                     fs.borrow_mut().push(FrameEntry {
                                         call_id,
-                                        record: record_py,
-                                        cf_bits: if cf_max >= 0 {
-                                            Some(cf_bits)
-                                        } else {
-                                            None
-                                        },
-                                        cf_max,
+                                        record: rec,
+                                        cf_bits: if cf_max_val >= 0 { Some(cf_bits_vec) } else { None },
+                                        cf_max: cf_max_val,
                                         pending_cf: 0,
                                         branch_buf: Vec::new(),
                                     });
                                 });
-                            }
-                        });
-                        ffi::Py_DECREF(result);
-                    } else {
-                        ffi::Py_DECREF(result);
+                            });
+                        }
                     }
                 }
             }
@@ -307,59 +338,80 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
         ffi::Py_DECREF(back as *mut ffi::PyObject);
     }
 
-    // Call Python: hook._c_make_record(frame, call_id, caller_id, call_lineno)
-    let hook = HOOK_OBJ;
-    if hook.is_null() {
-        ffi::Py_DECREF(code as *mut ffi::PyObject);
-        return 0;
-    }
-
-    let method = std::ffi::CString::new("_c_make_record").unwrap();
-    let fmt = std::ffi::CString::new("(OKKi)").unwrap();
-    let result = ffi::PyObject_CallMethod(
-        hook,
-        method.as_ptr(),
-        fmt.as_ptr(),
-        py_frame,
-        call_id,
-        caller_id,
-        call_lineno,
-    );
-
-    if result.is_null() {
+    // Extract co_qualname for ref_str
+    let qualname_obj = (*code).co_qualname;
+    let mut qn_size: ffi::Py_ssize_t = 0;
+    let qn_ptr = ffi::PyUnicode_AsUTF8AndSize(qualname_obj, &mut qn_size);
+    if qn_ptr.is_null() {
         ffi::PyErr_Clear();
         ffi::Py_DECREF(code as *mut ffi::PyObject);
         return 0;
     }
+    let qualname = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+        qn_ptr as *const u8,
+        qn_size as usize,
+    ));
 
-    if result != ffi::Py_None() {
-        Python::with_gil(|py| {
-            let tuple = Bound::from_borrowed_ptr(py, result);
-            if let (Ok(record), Ok(cf_set)) = (
-                tuple.get_item(0),
-                tuple.get_item(1),
-            ) {
-                let record_py: Py<CallRecord> = record.extract().unwrap();
-                let (cf_bits, cf_max) = if let Ok(s) = cf_set.downcast::<PySet>() {
-                    set_to_bitset(py, s)
+    let ref_str = format!("{}:{}", filename, qualname);
+    let function_id = get_or_assign_function_id(&ref_str);
+
+    let (self_obj, mut obj_id) = get_self_obj_id(py_frame);
+
+    Python::with_gil(|py| {
+        let db = DB_OBJ.as_ref().unwrap();
+        let rec = Py::new(py, CallRecord::new(py, call_id, function_id, caller_id as u64, call_lineno, obj_id)).unwrap();
+        let _ = db.borrow(py).add_call(py, rec.clone_ref(py));
+
+        let co_name = (*code).co_name;
+        let mut name_size: ffi::Py_ssize_t = 0;
+        let name_ptr = ffi::PyUnicode_AsUTF8AndSize(co_name, &mut name_size);
+        if !name_ptr.is_null() && self_obj.is_some() {
+            let name = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                name_ptr as *const u8,
+                name_size as usize,
+            ));
+            if name == "__init__" {
+                handle_init_rust(py, self_obj.unwrap(), code, call_id);
+                // Re-read obj_id after init may have set __tr_idx
+                let tr_idx_key = std::ffi::CStr::from_bytes_with_nul_unchecked(b"__tr_idx\0");
+                let tr_idx = ffi::PyObject_GetAttrString(self_obj.unwrap(), tr_idx_key.as_ptr());
+                if !tr_idx.is_null() {
+                    let new_id = ffi::PyLong_AsLong(tr_idx) as i32;
+                    ffi::Py_DECREF(tr_idx);
+                    if new_id != -1 || ffi::PyErr_Occurred().is_null() {
+                        obj_id = new_id;
+                        rec.borrow_mut(py).obj_id = obj_id;
+                    } else {
+                        ffi::PyErr_Clear();
+                    }
                 } else {
-                    (Vec::new(), -1)
-                };
-                FRAME_STACK.with(|fs| {
-                    fs.borrow_mut().push(FrameEntry {
-                        call_id,
-                        record: record_py,
-                        cf_bits: if cf_max >= 0 { Some(cf_bits) } else { None },
-                        cf_max,
-                        pending_cf: 0,
-                        branch_buf: Vec::new(),
-                    });
-                });
+                    ffi::PyErr_Clear();
+                }
             }
-        });
-    }
+        }
 
-    ffi::Py_DECREF(result);
+        let data = AST_DATA.as_ref().unwrap();
+        let (cf_bits_vec, cf_max_val) = if let Some(bits) = data.cf_bits.get(&ref_str) {
+            let max = *data.cf_max.get(&ref_str).unwrap_or(&-1);
+            (bits.clone(), max)
+        } else {
+            (Vec::new(), -1)
+        };
+
+        FRAME_STACK.with(|fs| {
+            fs.borrow_mut().push(FrameEntry {
+                call_id,
+                record: rec,
+                cf_bits: if cf_max_val >= 0 { Some(cf_bits_vec) } else { None },
+                cf_max: cf_max_val,
+                pending_cf: 0,
+                branch_buf: Vec::new(),
+            });
+        });
+    });
+
+    // Enable line tracing for this frame
+    frame::set_trace_lines(py_frame, 1);
     ffi::Py_DECREF(code as *mut ffi::PyObject);
     0
 }
@@ -430,16 +482,26 @@ unsafe fn handle_return(py_frame: *mut ffi::PyObject, _frame_obj: *mut ffi::PyFr
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (hook, prefixes, taint_patterns=None))]
-pub fn install(py: Python<'_>, hook: PyObject, prefixes: Vec<String>, taint_patterns: Option<Vec<String>>) -> PyResult<()> {
+#[pyo3(signature = (hook, prefixes, db, ownership, path_filter, taint_patterns=None))]
+pub fn install(
+    py: Python<'_>,
+    hook: PyObject,
+    prefixes: Vec<String>,
+    db: Py<Database>,
+    ownership: Py<OwnershipHook>,
+    path_filter: Py<PathFilter>,
+    taint_patterns: Option<Vec<String>>,
+) -> PyResult<()> {
     unsafe {
-        // Store hook reference
         if !HOOK_OBJ.is_null() {
             ffi::Py_DECREF(HOOK_OBJ);
         }
         HOOK_OBJ = hook.into_ptr();
 
-        // Cache prefixes
+        DB_OBJ = Some(db);
+        OWNERSHIP_OBJ = Some(ownership);
+        FILTER_OBJ = Some(path_filter);
+
         let pfx: Vec<(String, usize)> = prefixes
             .iter()
             .map(|s| (s.clone(), s.len()))
@@ -493,4 +555,143 @@ pub fn current_record(py: Python<'_>) -> Option<Py<CallRecord>> {
         let stack = fs.borrow();
         stack.peek().map(|e| e.record.clone_ref(py))
     })
+}
+
+fn hashset_to_bitset(lines: &std::collections::HashSet<i32>) -> (Vec<u64>, i32) {
+    let mut max_line: i32 = -1;
+    for &v in lines {
+        if v > max_line {
+            max_line = v;
+        }
+    }
+    if max_line < 0 {
+        return (Vec::new(), -1);
+    }
+    let n_words = (max_line as usize / 64) + 1;
+    let mut bits = vec![0u64; n_words];
+    for &v in lines {
+        bits[v as usize / 64] |= 1u64 << (v as usize % 64);
+    }
+    (bits, max_line)
+}
+
+#[pyfunction]
+pub fn load_ast_data(func_map: HashMap<String, i32>, cf_lines: HashMap<String, std::collections::HashSet<i32>>) {
+    let next_id = func_map.values().copied().max().unwrap_or(-1) + 1;
+    let mut cf_bits_map = HashMap::with_capacity(cf_lines.len());
+    let mut cf_max_map = HashMap::with_capacity(cf_lines.len());
+    for (ref_str, lines) in &cf_lines {
+        let (bits, max) = hashset_to_bitset(lines);
+        if max >= 0 {
+            cf_bits_map.insert(ref_str.clone(), bits);
+            cf_max_map.insert(ref_str.clone(), max);
+        }
+    }
+    unsafe {
+        AST_DATA = Some(AstData {
+            func_to_id: func_map,
+            next_func_id: next_id,
+            cf_bits: cf_bits_map,
+            cf_max: cf_max_map,
+        });
+    }
+}
+
+#[pyfunction]
+pub fn get_func_map() -> HashMap<String, i32> {
+    unsafe {
+        AST_DATA.as_ref().map(|d| d.func_to_id.clone()).unwrap_or_default()
+    }
+}
+
+unsafe fn get_or_assign_function_id(ref_str: &str) -> i32 {
+    let data = AST_DATA.as_mut().unwrap();
+    if let Some(&id) = data.func_to_id.get(ref_str) {
+        return id;
+    }
+    let id = data.next_func_id;
+    data.next_func_id += 1;
+    data.func_to_id.insert(ref_str.to_string(), id);
+    id
+}
+
+unsafe fn get_self_obj_id(py_frame: *mut ffi::PyObject) -> (Option<*mut ffi::PyObject>, i32) {
+    let f_locals_str = std::ffi::CStr::from_bytes_with_nul_unchecked(b"f_locals\0");
+    let locals = ffi::PyObject_GetAttrString(py_frame, f_locals_str.as_ptr());
+    if locals.is_null() {
+        ffi::PyErr_Clear();
+        return (None, 0);
+    }
+    let self_key = std::ffi::CStr::from_bytes_with_nul_unchecked(b"self\0");
+    let self_obj = ffi::PyDict_GetItemString(locals, self_key.as_ptr());
+    ffi::Py_DECREF(locals);
+    if self_obj.is_null() {
+        return (None, 0);
+    }
+    let tr_idx_key = std::ffi::CStr::from_bytes_with_nul_unchecked(b"__tr_idx\0");
+    let tr_idx = ffi::PyObject_GetAttrString(self_obj, tr_idx_key.as_ptr());
+    if tr_idx.is_null() {
+        ffi::PyErr_Clear();
+        return (Some(self_obj), 0);
+    }
+    let obj_id = ffi::PyLong_AsLong(tr_idx) as i32;
+    ffi::Py_DECREF(tr_idx);
+    if obj_id == -1 && !ffi::PyErr_Occurred().is_null() {
+        ffi::PyErr_Clear();
+        return (Some(self_obj), 0);
+    }
+    (Some(self_obj), obj_id)
+}
+
+unsafe fn handle_init_rust(
+    py: Python<'_>,
+    self_obj: *mut ffi::PyObject,
+    code: *mut ffi::PyCodeObject,
+    call_id: u64,
+) {
+    let cls = ffi::Py_TYPE(self_obj);
+    if cls.is_null() {
+        return;
+    }
+
+    let init_name = std::ffi::CStr::from_bytes_with_nul_unchecked(b"__init__\0");
+    let cls_init = ffi::PyObject_GetAttrString(cls as *mut ffi::PyObject, init_name.as_ptr());
+    if cls_init.is_null() {
+        ffi::PyErr_Clear();
+        return;
+    }
+
+    let code_attr = std::ffi::CStr::from_bytes_with_nul_unchecked(b"__code__\0");
+    let cls_code = ffi::PyObject_GetAttrString(cls_init, code_attr.as_ptr());
+    ffi::Py_DECREF(cls_init);
+    if cls_code.is_null() {
+        ffi::PyErr_Clear();
+        return;
+    }
+
+    let matches = cls_code as *mut ffi::PyCodeObject == code;
+    ffi::Py_DECREF(cls_code);
+    if !matches {
+        return;
+    }
+
+    let db = DB_OBJ.as_ref().unwrap();
+    let obj_rec = Py::new(py, ObjectRecord::new(py, call_id)).unwrap();
+    let obj_idx = db.borrow(py).add_object(py, obj_rec).unwrap();
+
+    let idx_obj = ffi::PyLong_FromLong(obj_idx as std::ffi::c_long);
+    let tr_idx_key = std::ffi::CStr::from_bytes_with_nul_unchecked(b"__tr_idx\0");
+    ffi::PyObject_GenericSetAttr(
+        self_obj,
+        ffi::PyUnicode_InternFromString(tr_idx_key.as_ptr()),
+        idx_obj,
+    );
+    ffi::Py_DECREF(idx_obj);
+
+    if let Some(ref ownership) = OWNERSHIP_OBJ {
+        let cls_bound = Bound::from_borrowed_ptr(py, cls as *mut ffi::PyObject);
+        if let Ok(cls_type) = cls_bound.downcast::<pyo3::types::PyType>() {
+            let _ = ownership.borrow_mut(py).patch_class(py, cls_type);
+        }
+    }
 }
