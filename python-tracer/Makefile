@@ -18,7 +18,7 @@ wheel: $(CPYTHON_BIN)
 	$(CPYTHON_BIN) -m maturin build --release --interpreter $(CPYTHON_BIN)
 
 install: wheel
-	$(CPYTHON_DIR)/python -m pip install target/wheels/*.whl
+	$(CPYTHON_DIR)/python -m pip install --force-reinstall target/wheels/*.whl
 
 clean:
 	cd $(CPYTHON_DIR) && $(MAKE) clean 2>/dev/null || true
