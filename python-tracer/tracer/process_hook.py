@@ -14,18 +14,16 @@ _original_process_init = multiprocessing.process.BaseProcess.__init__
 class ProcessHook:
     def __init__(
         self,
-        output_dir: str,
         prefixes: list[str],
         tracked_file: str | None = None,
         taint_patterns: list[str] | None = None,
         no_postprocess: bool = False,
     ) -> None:
-        self.output_dir = output_dir
         self.prefixes = prefixes
         self.tracked_file = tracked_file
         self.taint_patterns = taint_patterns
         self.no_postprocess = no_postprocess
-        os.makedirs(output_dir, exist_ok=True)
+        self._children: list[multiprocessing.process.BaseProcess] = []
 
     def install(self) -> None:
         hook = self
@@ -43,7 +41,6 @@ class ProcessHook:
             if target is not None:
                 wrapped = _TracedTarget(
                     target,
-                    hook.output_dir,
                     hook.prefixes,
                     tracked_file=hook.tracked_file,
                     taint_patterns=hook.taint_patterns,
@@ -68,25 +65,37 @@ class ProcessHook:
                     kwargs=kwargs if kwargs is not None else {},
                     daemon=daemon,
                 )
+            hook._children.append(proc_self)
 
         multiprocessing.process.BaseProcess.__init__ = _patched_init
 
     def uninstall(self) -> None:
         multiprocessing.process.BaseProcess.__init__ = _original_process_init
 
+    def join_children(self, timeout: float = 30) -> None:
+        for child in self._children:
+            child.join(timeout=timeout)
+
+    def child_trace_paths(self) -> list[str]:
+        paths = []
+        for child in self._children:
+            if child.pid is not None:
+                p = f"/tmp/{child.pid}.db"
+                if os.path.exists(p):
+                    paths.append(p)
+        return paths
+
 
 class _TracedTarget:
     def __init__(
         self,
         original_target: Any,
-        output_dir: str,
         prefixes: list[str],
         tracked_file: str | None = None,
         taint_patterns: list[str] | None = None,
         no_postprocess: bool = False,
     ) -> None:
         self.original_target = original_target
-        self.output_dir = output_dir
         self.prefixes = prefixes
         self.tracked_file = tracked_file
         self.taint_patterns = taint_patterns
@@ -108,7 +117,7 @@ class _TracedTarget:
         from tracer.postprocess import postprocess
 
         pid = os.getpid()
-        output_file = os.path.join(self.output_dir, f"{pid}.db")
+        output_file = f"/tmp/{pid}.db"
 
         path_filter = PathFilter(prefixes=self.prefixes, tracked_file=self.tracked_file)
         ast_index = AstIndex()
@@ -132,7 +141,13 @@ class _TracedTarget:
             _original_run(self_thread)
         threading.Thread.run = _patched_run  # type: ignore
 
+        written = False
+
         def _write_trace() -> None:
+            nonlocal written
+            if written:
+                return
+            written = True
             uninstall()
             try:
                 from tracer.__main__ import serialize
