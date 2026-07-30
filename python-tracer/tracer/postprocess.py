@@ -14,6 +14,7 @@ _CF_TYPES = (ast.If, ast.While, ast.For, ast.AsyncFor)
 
 @dataclass
 class DataflowEdge:
+    pid: int
     source_call_id: int
     source_type: str
     source_name: str
@@ -25,6 +26,7 @@ class DataflowEdge:
 
 @dataclass
 class CallInfo:
+    pid: int
     call_id: int
     function_id: int
     caller_id: int
@@ -36,6 +38,7 @@ class CallInfo:
 
 @dataclass
 class AttrRead:
+    pid: int
     call_id: int
     caller_id: int
     write_call_lineno: int
@@ -271,6 +274,7 @@ def resolve_intra_call(
         if src.kind == "literal":
             return
         edges.append(DataflowEdge(
+            pid=call.pid,
             source_call_id=src.call_id,
             source_type=src.kind,
             source_name=src.name,
@@ -375,29 +379,30 @@ def _process_call_expr(
 
 def merge_graphs(
     all_edges: list[DataflowEdge],
-    calls: dict[int, CallInfo],
-    members: dict[int, dict[str, int]],
-    objects: dict[int, int],
+    calls: dict[tuple[int, int], CallInfo],
+    members: dict[tuple[int, int], dict[str, int]],
+    objects: dict[tuple[int, int], int],
 ) -> list[DataflowEdge]:
     merged = list(all_edges)
 
-    obj_call_to_idx: dict[int, int] = {}
-    for idx, cid in objects.items():
-        obj_call_to_idx[cid] = idx
+    obj_call_to_idx: dict[tuple[int, int], tuple[int, int]] = {}
+    for (pid, idx), cid in objects.items():
+        obj_call_to_idx[(pid, cid)] = (pid, idx)
 
     for edge in all_edges:
         if edge.source_type == "attr_read" and edge.member_path:
             parts = edge.member_path.split(".")
             if len(parts) >= 2:
                 attr = parts[-1]
-                src_call = calls.get(edge.source_call_id)
+                src_call = calls.get((edge.pid, edge.source_call_id))
                 if src_call and src_call.obj_id > 0:
-                    obj_members = members.get(src_call.obj_id, {})
+                    obj_members = members.get((edge.pid, src_call.obj_id), {})
                     if attr in obj_members:
                         child_idx = obj_members[attr]
-                        child_call_id = objects.get(child_idx, 0)
+                        child_call_id = objects.get((edge.pid, child_idx), 0)
                         if child_call_id:
                             merged.append(DataflowEdge(
+                                pid=edge.pid,
                                 source_call_id=child_call_id,
                                 source_type="member",
                                 source_name=attr,
@@ -422,35 +427,36 @@ def postprocess(db_path: str) -> None:
     for fid, ref in c.execute("SELECT function_id, ref FROM functions"):
         func_map[fid] = ref
 
-    calls: dict[int, CallInfo] = {}
-    for row in c.execute("SELECT call_id, function_id, caller_id, call_lineno, obj_id, control_flow FROM calls"):
+    calls: dict[tuple[int, int], CallInfo] = {}
+    for row in c.execute("SELECT pid, call_id, function_id, caller_id, call_lineno, obj_id, control_flow FROM calls"):
         ci = CallInfo(
-            call_id=row[0],
-            function_id=row[1],
-            caller_id=row[2],
-            call_lineno=row[3],
-            obj_id=row[4],
-            control_flow=row[5],
-            ref=func_map.get(row[1], ""),
+            pid=row[0],
+            call_id=row[1],
+            function_id=row[2],
+            caller_id=row[3],
+            call_lineno=row[4],
+            obj_id=row[5],
+            control_flow=row[6],
+            ref=func_map.get(row[2], ""),
         )
-        calls[ci.call_id] = ci
+        calls[(ci.pid, ci.call_id)] = ci
 
-    attr_reads_by_call: dict[int, list[AttrRead]] = {}
-    for row in c.execute("SELECT call_id, caller_id, write_call_lineno, read_call_lineno FROM attr_reads"):
-        ar = AttrRead(call_id=row[0], caller_id=row[1], write_call_lineno=row[2], read_call_lineno=row[3])
-        attr_reads_by_call.setdefault(ar.call_id, []).append(ar)
+    attr_reads_by_call: dict[tuple[int, int], list[AttrRead]] = {}
+    for row in c.execute("SELECT pid, call_id, caller_id, write_call_lineno, read_call_lineno FROM attr_reads"):
+        ar = AttrRead(pid=row[0], call_id=row[1], caller_id=row[2], write_call_lineno=row[3], read_call_lineno=row[4])
+        attr_reads_by_call.setdefault((ar.pid, ar.call_id), []).append(ar)
 
-    objects: dict[int, int] = {}
-    for row in c.execute("SELECT obj_idx, call_id FROM objects"):
-        objects[row[0]] = row[1]
+    objects: dict[tuple[int, int], int] = {}
+    for row in c.execute("SELECT pid, obj_idx, call_id FROM objects"):
+        objects[(row[0], row[1])] = row[2]
 
-    members: dict[int, dict[str, int]] = {}
-    for row in c.execute("SELECT obj_idx, attr, child_idx FROM members"):
-        members.setdefault(row[0], {})[row[1]] = row[2]
+    members: dict[tuple[int, int], dict[str, int]] = {}
+    for row in c.execute("SELECT pid, obj_idx, attr, child_idx FROM members"):
+        members.setdefault((row[0], row[1]), {})[row[2]] = row[3]
 
-    children_by_caller: dict[int, list[CallInfo]] = {}
+    children_by_caller: dict[tuple[int, int], list[CallInfo]] = {}
     for ci in calls.values():
-        children_by_caller.setdefault(ci.caller_id, []).append(ci)
+        children_by_caller.setdefault((ci.pid, ci.caller_id), []).append(ci)
 
     file_asts: dict[str, ast.Module] = {}
     func_nodes: dict[str, ast.FunctionDef | ast.AsyncFunctionDef | None] = {}
@@ -474,7 +480,7 @@ def postprocess(db_path: str) -> None:
         return node
 
     all_edges: list[DataflowEdge] = []
-    all_executed: list[tuple[int, int, int]] = []
+    all_executed: list[tuple[int, int, int, int]] = []
 
     n_resolved = 0
     n_skipped = 0
@@ -486,10 +492,10 @@ def postprocess(db_path: str) -> None:
 
         executed = reconstruct_executed_stmts(func_node, ci.control_flow)
         for order, stmt in enumerate(executed):
-            all_executed.append((ci.call_id, order, stmt.lineno))
+            all_executed.append((ci.pid, ci.call_id, order, stmt.lineno))
 
-        child_calls = children_by_caller.get(ci.call_id, [])
-        call_attr_reads = attr_reads_by_call.get(ci.call_id, [])
+        child_calls = children_by_caller.get((ci.pid, ci.call_id), [])
+        call_attr_reads = attr_reads_by_call.get((ci.pid, ci.call_id), [])
 
         edges = resolve_intra_call(ci, func_node, child_calls, call_attr_reads)
         all_edges.extend(edges)
@@ -499,6 +505,7 @@ def postprocess(db_path: str) -> None:
 
     c.executescript("""
         CREATE TABLE IF NOT EXISTS dataflow_edges (
+            pid INTEGER NOT NULL,
             source_call_id INTEGER NOT NULL,
             source_type TEXT NOT NULL,
             source_name TEXT NOT NULL,
@@ -508,6 +515,7 @@ def postprocess(db_path: str) -> None:
             member_path TEXT
         );
         CREATE TABLE IF NOT EXISTS executed_lines (
+            pid INTEGER NOT NULL,
             call_id INTEGER NOT NULL,
             line_order INTEGER NOT NULL,
             lineno INTEGER NOT NULL
@@ -515,16 +523,16 @@ def postprocess(db_path: str) -> None:
     """)
 
     c.executemany(
-        "INSERT INTO dataflow_edges VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO dataflow_edges VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            (e.source_call_id, e.source_type, e.source_name,
+            (e.pid, e.source_call_id, e.source_type, e.source_name,
              e.target_call_id, e.target_type, e.target_name, e.member_path)
             for e in merged
         ],
     )
 
     c.executemany(
-        "INSERT INTO executed_lines VALUES (?, ?, ?)",
+        "INSERT INTO executed_lines VALUES (?, ?, ?, ?)",
         all_executed,
     )
 

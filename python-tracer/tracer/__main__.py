@@ -116,24 +116,30 @@ def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
         CREATE TABLE meta (pid INTEGER);
         CREATE TABLE functions (function_id INTEGER PRIMARY KEY, ref TEXT NOT NULL);
         CREATE TABLE calls (
-            call_id INTEGER PRIMARY KEY,
+            pid INTEGER NOT NULL,
+            call_id INTEGER NOT NULL,
             function_id INTEGER NOT NULL,
             caller_id INTEGER NOT NULL,
             call_lineno INTEGER NOT NULL,
             obj_id INTEGER NOT NULL,
-            control_flow BLOB
+            control_flow BLOB,
+            PRIMARY KEY (pid, call_id)
         );
         CREATE TABLE attr_reads (
+            pid INTEGER NOT NULL,
             call_id INTEGER NOT NULL,
             caller_id INTEGER NOT NULL,
             write_call_lineno INTEGER NOT NULL,
             read_call_lineno INTEGER NOT NULL
         );
         CREATE TABLE objects (
-            obj_idx INTEGER PRIMARY KEY,
-            call_id INTEGER NOT NULL
+            pid INTEGER NOT NULL,
+            obj_idx INTEGER NOT NULL,
+            call_id INTEGER NOT NULL,
+            PRIMARY KEY (pid, obj_idx)
         );
         CREATE TABLE members (
+            pid INTEGER NOT NULL,
             obj_idx INTEGER NOT NULL,
             attr TEXT NOT NULL,
             child_idx INTEGER NOT NULL
@@ -153,28 +159,29 @@ def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
     )
 
     _TAINT_ID = (1 << 64) - 1
+    pid = os.getpid()
 
     n_calls = 0
     for rec in db.calls:
         cf = bytes(rec.control_flow) if rec.control_flow else None
         caller_id = 0 if rec.caller_id == _TAINT_ID else rec.caller_id
         c.execute(
-            "INSERT INTO calls VALUES (?, ?, ?, ?, ?, ?)",
-            (rec.call_id, rec.function_id, caller_id, rec.call_lineno, rec.obj_id, cf),
+            "INSERT INTO calls VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (pid, rec.call_id, rec.function_id, caller_id, rec.call_lineno, rec.obj_id, cf),
         )
         for ar in rec.attr_reads:
             ar_caller = 0 if ar.caller_id == _TAINT_ID else ar.caller_id
             c.execute(
-                "INSERT INTO attr_reads VALUES (?, ?, ?, ?)",
-                (rec.call_id, ar_caller, ar.write_call_lineno, ar.read_call_lineno),
+                "INSERT INTO attr_reads VALUES (?, ?, ?, ?, ?)",
+                (pid, rec.call_id, ar_caller, ar.write_call_lineno, ar.read_call_lineno),
             )
         n_calls += 1
 
     n_objects = 0
     for idx, obj in enumerate(db.objects):
-        c.execute("INSERT INTO objects VALUES (?, ?)", (idx, obj.call_id))
+        c.execute("INSERT INTO objects VALUES (?, ?, ?)", (pid, idx, obj.call_id))
         for attr, child_idx in dict(obj.members).items():
-            c.execute("INSERT INTO members VALUES (?, ?, ?)", (idx, attr, child_idx))
+            c.execute("INSERT INTO members VALUES (?, ?, ?, ?)", (pid, idx, attr, child_idx))
         n_objects += 1
 
     n_ipc = 0
@@ -271,12 +278,12 @@ def main() -> None:
                 conn = sqlite3.connect(args.output)
                 for child_db in child_dbs:
                     print(f"Merging child trace {child_db}", file=sys.stderr)
-                    conn.execute(f"ATTACH DATABASE ? AS child", (child_db,))
+                    conn.execute("ATTACH DATABASE ? AS child", (child_db,))
                     conn.execute("INSERT OR IGNORE INTO meta SELECT * FROM child.meta")
                     conn.execute("INSERT OR IGNORE INTO functions SELECT * FROM child.functions")
-                    conn.execute("INSERT OR REPLACE INTO calls SELECT * FROM child.calls")
+                    conn.execute("INSERT INTO calls SELECT * FROM child.calls")
                     conn.execute("INSERT INTO attr_reads SELECT * FROM child.attr_reads")
-                    conn.execute("INSERT OR IGNORE INTO objects SELECT * FROM child.objects")
+                    conn.execute("INSERT INTO objects SELECT * FROM child.objects")
                     conn.execute("INSERT INTO members SELECT * FROM child.members")
                     conn.execute("INSERT INTO ipc SELECT * FROM child.ipc")
                     conn.execute("DETACH DATABASE child")
