@@ -218,6 +218,16 @@ impl TracedGetattr {
         Ok(bound.into_pyobject(py)?.into_any().unbind())
     }
 
+    #[pyo3(signature = (obj, name))]
+    fn __call__(
+        &self,
+        py: Python<'_>,
+        obj: &Bound<'_, PyAny>,
+        name: &Bound<'_, PyString>,
+    ) -> PyResult<PyObject> {
+        self.call_impl(py, obj, name)
+    }
+
     pub fn call_impl(
         &self,
         py: Python<'_>,
