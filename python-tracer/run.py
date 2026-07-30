@@ -25,13 +25,12 @@ HEALTH_URL = "http://localhost:8000/health"
 POLL_INTERVAL = 10
 
 
-def poll_health(pid):
+def poll_health(server):
     start = time.monotonic()
     while True:
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            print(f"Process {pid} is dead", file=sys.stderr)
+        rc = server.poll()
+        if rc is not None:
+            print(f"Process {server.pid} exited with code {rc}", file=sys.stderr)
             return False
 
         try:
@@ -44,7 +43,7 @@ def poll_health(pid):
             pass
 
         elapsed = int(time.monotonic() - start)
-        print(f"pid={pid} +{elapsed // 60}m{elapsed % 60:02d}s waiting...")
+        print(f"pid={server.pid} +{elapsed // 60}m{elapsed % 60:02d}s waiting...")
         time.sleep(POLL_INTERVAL)
 
 
@@ -103,7 +102,7 @@ def main():
     server = subprocess.Popen(cmd, start_new_session=True)
 
     try:
-        if not poll_health(server.pid):
+        if not poll_health(server):
             server.wait()
             sys.exit(server.returncode or 1)
 
