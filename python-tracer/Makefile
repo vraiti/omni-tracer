@@ -2,6 +2,8 @@ PREFIX ?= /usr
 CPYTHON_DIR := cpython
 CPYTHON_BIN := $(CPYTHON_DIR)/python
 NPROC := $(shell nproc)
+BINDIR := $(dir $(shell which python3))
+TRACE_PYTHON := $(BINDIR)trace-python
 
 .PHONY: all cpython wheel install clean
 
@@ -18,7 +20,8 @@ wheel: $(CPYTHON_BIN)
 	$(CPYTHON_BIN) -m maturin build --release --interpreter $(CPYTHON_BIN)
 
 install: wheel
-	$(CPYTHON_DIR)/python -m pip install --force-reinstall target/wheels/*.whl
+	cp $(CPYTHON_BIN) $(TRACE_PYTHON)
+	python3 -m pip install --force-reinstall target/wheels/*.whl
 
 clean:
 	cd $(CPYTHON_DIR) && $(MAKE) clean 2>/dev/null || true

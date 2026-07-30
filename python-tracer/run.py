@@ -102,7 +102,7 @@ def main():
         prefix_args.extend(["--prefix", p])
 
     cmd = [
-        sys.executable, "-m", "tracer",
+        "trace-python", "-m", "tracer",
         "--output", output,
         "--tracked", track_file,
         *taint_args,
