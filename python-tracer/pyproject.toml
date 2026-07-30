@@ -13,3 +13,4 @@ python-tracer = "tracer.__main__:main"
 [tool.maturin]
 features = ["pyo3/extension-module"]
 module-name = "tracer._tracer"
+python-source = "src"
