@@ -347,6 +347,16 @@ impl TracedList {
         Ok(copied.unbind())
     }
 
+    fn __add__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let result = self.inner.bind(py).call_method1("__add__", (other,))?;
+        Ok(result.unbind())
+    }
+
+    fn __radd__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let result = other.call_method1("__add__", (self.inner.bind(py),))?;
+        Ok(result.unbind())
+    }
+
     fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let builtins = py.import("builtins")?;
         let list_type = builtins.getattr("list")?;

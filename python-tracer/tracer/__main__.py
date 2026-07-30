@@ -151,12 +151,15 @@ def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
         func_map.items(),
     )
 
+    _TAINT_ID = (1 << 64) - 1
+
     n_calls = 0
     for rec in db.calls:
         cf = bytes(rec.control_flow) if rec.control_flow else None
+        caller_id = 0 if rec.caller_id == _TAINT_ID else rec.caller_id
         c.execute(
             "INSERT INTO calls VALUES (?, ?, ?, ?, ?, ?)",
-            (rec.call_id, rec.function_id, rec.caller_id, rec.call_lineno, rec.obj_id, cf),
+            (rec.call_id, rec.function_id, caller_id, rec.call_lineno, rec.obj_id, cf),
         )
         for ar in rec.attr_reads:
             c.execute(
