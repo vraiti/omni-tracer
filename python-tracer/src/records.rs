@@ -17,6 +17,13 @@ impl AttrRecordWrite {
     pub fn new(caller_id: u64, call_lineno: i32) -> Self {
         Self { caller_id, call_lineno }
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let cls = py.import("tracer._tracer")?.getattr("AttrRecordWrite")?;
+        let args = pyo3::types::PyTuple::new(py, &[self.caller_id.into_pyobject(py)?.into_any(), self.call_lineno.into_pyobject(py)?.into_any()])?;
+        let result = pyo3::types::PyTuple::new(py, &[cls.as_any(), args.as_any()])?;
+        Ok(result.unbind().into())
+    }
 }
 
 #[pyclass]
