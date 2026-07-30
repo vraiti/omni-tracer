@@ -18,6 +18,7 @@ class DataflowEdge:
     source_call_id: int
     source_type: str
     source_name: str
+    target_pid: int
     target_call_id: int
     target_type: str
     target_name: str
@@ -278,6 +279,7 @@ def resolve_intra_call(
             source_call_id=src.call_id,
             source_type=src.kind,
             source_name=src.name,
+            target_pid=call.pid,
             target_call_id=target_call_id,
             target_type=target_type,
             target_name=target_name,
@@ -406,6 +408,7 @@ def merge_graphs(
                                 source_call_id=child_call_id,
                                 source_type="member",
                                 source_name=attr,
+                                target_pid=edge.target_pid,
                                 target_call_id=edge.target_call_id,
                                 target_type=edge.target_type,
                                 target_name=edge.target_name,
@@ -413,6 +416,53 @@ def merge_graphs(
                             ))
 
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Cross-process IPC edges
+# ---------------------------------------------------------------------------
+
+def resolve_ipc_edges(
+    c: Any,
+    objects: dict[tuple[int, int], int],
+) -> list[DataflowEdge]:
+    from collections import defaultdict
+
+    channels: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for pid, name, obj_idx in c.execute("SELECT pid, name, obj_idx FROM ipc"):
+        call_id = objects.get((pid, obj_idx))
+        if call_id is not None:
+            channels[name].append((pid, call_id))
+
+    edges: list[DataflowEdge] = []
+    for name, endpoints in channels.items():
+        if len(endpoints) < 2:
+            continue
+        for i, (src_pid, src_cid) in enumerate(endpoints):
+            for tgt_pid, tgt_cid in endpoints[i + 1:]:
+                if src_pid == tgt_pid:
+                    continue
+                edges.append(DataflowEdge(
+                    pid=src_pid,
+                    source_call_id=src_cid,
+                    source_type="ipc",
+                    source_name=name,
+                    target_pid=tgt_pid,
+                    target_call_id=tgt_cid,
+                    target_type="ipc",
+                    target_name=name,
+                ))
+                edges.append(DataflowEdge(
+                    pid=tgt_pid,
+                    source_call_id=tgt_cid,
+                    source_type="ipc",
+                    source_name=name,
+                    target_pid=src_pid,
+                    target_call_id=src_cid,
+                    target_type="ipc",
+                    target_name=name,
+                ))
+    return edges
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +552,8 @@ def postprocess(db_path: str) -> None:
         n_resolved += 1
 
     merged = merge_graphs(all_edges, calls, members, objects)
+    ipc_edges = resolve_ipc_edges(c, objects)
+    merged.extend(ipc_edges)
 
     c.executescript("""
         CREATE TABLE IF NOT EXISTS dataflow_edges (
@@ -509,6 +561,7 @@ def postprocess(db_path: str) -> None:
             source_call_id INTEGER NOT NULL,
             source_type TEXT NOT NULL,
             source_name TEXT NOT NULL,
+            target_pid INTEGER NOT NULL,
             target_call_id INTEGER NOT NULL,
             target_type TEXT NOT NULL,
             target_name TEXT NOT NULL,
@@ -523,10 +576,10 @@ def postprocess(db_path: str) -> None:
     """)
 
     c.executemany(
-        "INSERT INTO dataflow_edges VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO dataflow_edges VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (e.pid, e.source_call_id, e.source_type, e.source_name,
-             e.target_call_id, e.target_type, e.target_name, e.member_path)
+             e.target_pid, e.target_call_id, e.target_type, e.target_name, e.member_path)
             for e in merged
         ],
     )

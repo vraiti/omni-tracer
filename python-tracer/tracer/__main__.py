@@ -147,6 +147,7 @@ def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
             child_idx INTEGER NOT NULL
         );
         CREATE TABLE ipc (
+            pid INTEGER NOT NULL,
             name TEXT NOT NULL,
             obj_idx INTEGER NOT NULL
         );
@@ -188,7 +189,7 @@ def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
 
     n_ipc = 0
     for irec in db.ipc:
-        c.execute("INSERT INTO ipc VALUES (?, ?)", (irec.name, irec.obj_idx))
+        c.execute("INSERT INTO ipc VALUES (?, ?, ?)", (pid, irec.name, irec.obj_idx))
         n_ipc += 1
 
     conn.commit()
