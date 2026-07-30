@@ -74,8 +74,9 @@ def main():
     args = parser.parse_args()
 
     model = MODELS[args.model]
-    output = "traces/trace.db"
-    track_file = "tracked.txt"
+    base = os.path.dirname(os.path.abspath(__file__))
+    output = os.path.join(base, "traces", "trace.db")
+    track_file = os.path.join(base, "tracked.txt")
     os.makedirs(os.path.dirname(output), exist_ok=True)
 
     taint_args = []
