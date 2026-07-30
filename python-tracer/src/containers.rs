@@ -40,7 +40,7 @@ fn emit_read(py: Python<'_>, arw: &AttrRecordWrite) {
 // TracedDict
 // ---------------------------------------------------------------------------
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct TracedDict {
     inner: Py<PyDict>,
     arws: HashMap<u64, AttrRecordWrite>, // keyed by hash of the key object
@@ -217,7 +217,7 @@ impl TracedDict {
 // TracedList
 // ---------------------------------------------------------------------------
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct TracedList {
     inner: Py<PyList>,
     arws: Vec<AttrRecordWrite>,
@@ -355,7 +355,7 @@ impl TracedList {
 // TracedDeque
 // ---------------------------------------------------------------------------
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct TracedDeque {
     inner: PyObject,
     arws: std::collections::VecDeque<AttrRecordWrite>,

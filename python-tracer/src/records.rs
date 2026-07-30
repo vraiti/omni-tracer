@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyByteArray, PyDict, PyList};
 use std::sync::Mutex;
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 #[derive(Clone)]
 pub struct AttrRecordWrite {
     #[pyo3(get)]
@@ -26,7 +26,7 @@ impl AttrRecordWrite {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 #[derive(Clone)]
 pub struct AttrRecordRead {
     #[pyo3(get)]
@@ -43,9 +43,19 @@ impl AttrRecordRead {
     pub fn new(caller_id: u64, write_call_lineno: i32, read_call_lineno: i32) -> Self {
         Self { caller_id, write_call_lineno, read_call_lineno }
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let cls = py.import("tracer._tracer")?.getattr("AttrRecordRead")?;
+        let args = pyo3::types::PyTuple::new(py, &[
+            self.caller_id.into_pyobject(py)?.into_any(),
+            self.write_call_lineno.into_pyobject(py)?.into_any(),
+            self.read_call_lineno.into_pyobject(py)?.into_any(),
+        ])?;
+        Ok(pyo3::types::PyTuple::new(py, &[cls.as_any(), args.as_any()])?.unbind().into())
+    }
 }
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct CallRecord {
     #[pyo3(get)]
     pub call_id: u64,
@@ -98,9 +108,21 @@ impl CallRecord {
         self.attr_reads.bind(py).append(read.into_pyobject(py)?)?;
         Ok(())
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let cls = py.import("tracer._tracer")?.getattr("CallRecord")?;
+        let args = pyo3::types::PyTuple::new(py, &[
+            self.call_id.into_pyobject(py)?.into_any(),
+            self.function_id.into_pyobject(py)?.into_any(),
+            self.caller_id.into_pyobject(py)?.into_any(),
+            self.call_lineno.into_pyobject(py)?.into_any(),
+            self.obj_id.into_pyobject(py)?.into_any(),
+        ])?;
+        Ok(pyo3::types::PyTuple::new(py, &[cls.as_any(), args.as_any()])?.unbind().into())
+    }
 }
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct ObjectRecord {
     #[pyo3(get)]
     pub call_id: u64,
@@ -117,9 +139,17 @@ impl ObjectRecord {
             members: PyDict::new(py).unbind(),
         }
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let cls = py.import("tracer._tracer")?.getattr("ObjectRecord")?;
+        let args = pyo3::types::PyTuple::new(py, &[
+            self.call_id.into_pyobject(py)?.into_any(),
+        ])?;
+        Ok(pyo3::types::PyTuple::new(py, &[cls.as_any(), args.as_any()])?.unbind().into())
+    }
 }
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct IpcRecord {
     #[pyo3(get)]
     pub name: String,
@@ -133,9 +163,18 @@ impl IpcRecord {
     pub fn new(name: String, obj_idx: i32) -> Self {
         Self { name, obj_idx }
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let cls = py.import("tracer._tracer")?.getattr("IpcRecord")?;
+        let args = pyo3::types::PyTuple::new(py, &[
+            self.name.clone().into_pyobject(py)?.into_any(),
+            self.obj_idx.into_pyobject(py)?.into_any(),
+        ])?;
+        Ok(pyo3::types::PyTuple::new(py, &[cls.as_any(), args.as_any()])?.unbind().into())
+    }
 }
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct Database {
     #[pyo3(get)]
     pub calls: Py<PyList>,
@@ -180,5 +219,11 @@ impl Database {
         let idx = list.len();
         list.append(rec)?;
         Ok(idx)
+    }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let cls = py.import("tracer._tracer")?.getattr("Database")?;
+        let args = pyo3::types::PyTuple::empty(py);
+        Ok(pyo3::types::PyTuple::new(py, &[cls.as_any(), args.as_any()])?.unbind().into())
     }
 }

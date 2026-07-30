@@ -7,7 +7,7 @@ use crate::frame;
 use crate::hook;
 use crate::records::{AttrRecordRead, AttrRecordWrite, Database};
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct OwnershipHook {
     db: Py<Database>,
     trace_hook: PyObject,
@@ -60,7 +60,7 @@ impl OwnershipHook {
 // TracedSetattr — descriptor that replaces cls.__setattr__
 // ---------------------------------------------------------------------------
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct TracedSetattr {
     original: PyObject,
     db: Py<Database>,
@@ -159,7 +159,7 @@ impl TracedSetattr {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct BoundSetattr {
     inner: Py<TracedSetattr>,
     instance: PyObject,
@@ -183,7 +183,7 @@ impl BoundSetattr {
 // TracedGetattr — descriptor that replaces cls.__getattribute__
 // ---------------------------------------------------------------------------
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct TracedGetattr {
     original: PyObject,
     trace_hook: PyObject,
@@ -251,7 +251,7 @@ impl TracedGetattr {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct BoundGetattr {
     inner: Py<TracedGetattr>,
     instance: PyObject,

@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyList, PyString, PyType};
 use std::collections::{HashMap, HashSet};
 
-#[pyclass]
+#[pyclass(module = "tracer._tracer")]
 pub struct PathFilter {
     pub prefixes: Vec<String>,
     pub tracked_classes: HashSet<String>,
