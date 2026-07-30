@@ -341,6 +341,12 @@ impl TracedList {
         Ok(())
     }
 
+    fn copy(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let list = self.inner.bind(py);
+        let copied = list.call_method0("copy")?;
+        Ok(copied.unbind())
+    }
+
     fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let builtins = py.import("builtins")?;
         let list_type = builtins.getattr("list")?;
