@@ -202,6 +202,15 @@ impl TracedDict {
     fn items(&self, py: Python<'_>) -> PyResult<PyObject> {
         Ok(self.inner.bind(py).items().unbind().into())
     }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let builtins = py.import("builtins")?;
+        let dict_type = builtins.getattr("dict")?;
+        let items = self.inner.bind(py).items();
+        let args = pyo3::types::PyTuple::new(py, &[items.as_any()])?;
+        let result = pyo3::types::PyTuple::new(py, &[dict_type.as_any(), args.as_any()])?;
+        Ok(result.unbind().into())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +339,15 @@ impl TracedList {
         self.inner.bind(py).call_method0("clear")?;
         self.arws.clear();
         Ok(())
+    }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let builtins = py.import("builtins")?;
+        let list_type = builtins.getattr("list")?;
+        let inner = self.inner.bind(py);
+        let args = pyo3::types::PyTuple::new(py, &[inner.as_any()])?;
+        let result = pyo3::types::PyTuple::new(py, &[list_type.as_any(), args.as_any()])?;
+        Ok(result.unbind().into())
     }
 }
 
@@ -462,6 +480,15 @@ impl TracedDeque {
         self.inner.bind(py).call_method0("clear")?;
         self.arws.clear();
         Ok(())
+    }
+
+    fn __reduce__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let collections = py.import("collections")?;
+        let deque_type = collections.getattr("deque")?;
+        let inner_list = self.inner.bind(py).call_method0("copy")?;
+        let args = pyo3::types::PyTuple::new(py, &[inner_list.as_any()])?;
+        let result = pyo3::types::PyTuple::new(py, &[deque_type.as_any(), args.as_any()])?;
+        Ok(result.unbind().into())
     }
 }
 
