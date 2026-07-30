@@ -1,0 +1,4 @@
+[submodule "python-tracer/cpython"]
+	path = python-tracer/cpython
+	url = https://github.com/vraiti/cpython.git
+	branch = tracer/call-id
