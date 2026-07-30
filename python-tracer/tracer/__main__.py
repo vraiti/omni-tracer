@@ -162,9 +162,10 @@ def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
             (rec.call_id, rec.function_id, caller_id, rec.call_lineno, rec.obj_id, cf),
         )
         for ar in rec.attr_reads:
+            ar_caller = 0 if ar.caller_id == _TAINT_ID else ar.caller_id
             c.execute(
                 "INSERT INTO attr_reads VALUES (?, ?, ?, ?)",
-                (rec.call_id, ar.caller_id, ar.write_call_lineno, ar.read_call_lineno),
+                (rec.call_id, ar_caller, ar.write_call_lineno, ar.read_call_lineno),
             )
         n_calls += 1
 
