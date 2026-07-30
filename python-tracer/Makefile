@@ -1,4 +1,4 @@
-PREFIX ?= /usr
+PREFIX ?= /opt/trace-python
 CPYTHON_DIR := cpython
 CPYTHON_BIN := $(CPYTHON_DIR)/python
 NPROC := $(shell nproc)
@@ -19,7 +19,8 @@ wheel: $(CPYTHON_BIN)
 
 install: wheel
 	cd $(CPYTHON_DIR) && $(MAKE) install
-	python3 -m pip install --force-reinstall target/wheels/*.whl
+	$(PREFIX)/bin/python3.12 -m pip install --force-reinstall target/wheels/*.whl
+	ln -sf $(PREFIX)/bin/python3.12 /usr/local/bin/trace-python
 
 clean:
 	cd $(CPYTHON_DIR) && $(MAKE) clean 2>/dev/null || true
