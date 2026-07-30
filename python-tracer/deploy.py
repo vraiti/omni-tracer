@@ -11,4 +11,5 @@ def run(cmd, **kw):
 
 run("git pull --recurse-submodules")
 run("make install")
-os.execvp(sys.executable, [sys.executable, os.path.join(DIR, "run.py"), *sys.argv[1:]])
+python = os.path.join(DIR, "cpython", "python")
+os.execvp(python, [python, os.path.join(DIR, "run.py"), *sys.argv[1:]])
