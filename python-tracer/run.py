@@ -104,9 +104,8 @@ def main():
 
     try:
         if not poll_health(server.pid):
-            os.killpg(server.pid, signal.SIGTERM)
             server.wait()
-            sys.exit(1)
+            sys.exit(server.returncode or 1)
 
         if args.with_query:
             query = model.get("query")
@@ -127,10 +126,10 @@ def main():
                     print(f"Query failed: {exc}", file=sys.stderr)
 
         print(f"Sending SIGTERM to pid {server.pid}")
-        os.kill(server.pid, signal.SIGTERM)
+        os.killpg(server.pid, signal.SIGTERM)
         server.wait()
     except KeyboardInterrupt:
-        os.kill(server.pid, signal.SIGTERM)
+        os.killpg(server.pid, signal.SIGTERM)
         server.wait()
         sys.exit(1)
 
