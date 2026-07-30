@@ -113,7 +113,7 @@ def main():
         *model["args"],
     ]
 
-    server = subprocess.Popen(cmd, start_new_session=True)
+    server = subprocess.Popen(cmd, start_new_session=True, cwd="/")
 
     try:
         if not poll_health(server):
