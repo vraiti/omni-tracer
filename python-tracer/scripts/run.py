@@ -74,7 +74,7 @@ def main():
     args = parser.parse_args()
 
     model = MODELS[args.model]
-    base = os.path.dirname(os.path.abspath(__file__))
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     output = os.path.join(base, "traces", "trace.db")
     track_file = os.path.join(base, "tracked.txt")
     os.makedirs(os.path.dirname(output), exist_ok=True)
@@ -105,7 +105,7 @@ def main():
     cmd = [
         "trace-python", "-m", "tracer",
         "--output", output,
-        "--tracked", track_file,
+        *(["--tracked", track_file] if os.path.exists(track_file) else []),
         *taint_args,
         *prefix_args,
         "--",
