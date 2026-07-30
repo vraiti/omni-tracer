@@ -189,6 +189,7 @@ def main() -> None:
     parser.add_argument("--tracked", type=str, default=None, help="path to tracked.txt")
     parser.add_argument("--output", type=str, default="trace.db", help="output file")
     parser.add_argument("--no-postprocess", action="store_true", help="skip postprocessing")
+    parser.add_argument("--taint-notrace", action="append", default=None, help="suppress tracing inside functions matching this qualname substring (repeatable)")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="command to run")
 
     args = parser.parse_args()
@@ -209,7 +210,7 @@ def main() -> None:
 
     # Install trace function
     prefixes = list(path_filter._prefixes)
-    install(hook, prefixes)
+    install(hook, prefixes, taint_patterns=args.taint_notrace)
 
     # Monkey-patch Thread.run for new threads
     _original_run = threading.Thread.run

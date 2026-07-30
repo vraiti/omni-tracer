@@ -23,6 +23,9 @@ static mut PREFIXES: Option<Vec<(String, usize)>> = None;
 // Scope cache: filename ptr -> in_scope
 static mut SCOPE_CACHE: Option<std::collections::HashMap<usize, bool>> = None;
 
+// Taint patterns: qualname substrings that suppress tracing
+static mut TAINT_PATTERNS: Option<Vec<String>> = None;
+
 // ---------------------------------------------------------------------------
 // Thread-local frame stack
 // ---------------------------------------------------------------------------
@@ -146,6 +149,18 @@ unsafe extern "C" fn trace_func(
 }
 
 unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrameObject) -> std::ffi::c_int {
+    // Taint propagation: if caller is tainted, propagate without tracing
+    let back = ffi::PyFrame_GetBack(frame_obj);
+    if !back.is_null() {
+        let caller_id = frame::get_call_id(back as *mut ffi::PyObject);
+        ffi::Py_DECREF(back as *mut ffi::PyObject);
+        if caller_id == u64::MAX {
+            frame::set_call_id(py_frame, u64::MAX);
+            frame::set_trace_lines(py_frame, 0);
+            return 0;
+        }
+    }
+
     let code = ffi::PyFrame_GetCode(frame_obj);
     if code.is_null() {
         return 0;
@@ -169,6 +184,27 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
     };
 
     let in_scope = check_scope(filename_ptr, filename);
+
+    // Taint origination: check if this function matches a taint pattern
+    if let Some(ref patterns) = TAINT_PATTERNS {
+        if !patterns.is_empty() {
+            let qualname_obj = (*code).co_qualname;
+            let mut qn_size: ffi::Py_ssize_t = 0;
+            let qn_ptr = ffi::PyUnicode_AsUTF8AndSize(qualname_obj, &mut qn_size);
+            if !qn_ptr.is_null() {
+                let qualname = std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    qn_ptr as *const u8,
+                    qn_size as usize,
+                ));
+                if patterns.iter().any(|p| qualname.contains(p.as_str())) {
+                    frame::set_call_id(py_frame, u64::MAX);
+                    frame::set_trace_lines(py_frame, 0);
+                    ffi::Py_DECREF(code as *mut ffi::PyObject);
+                    return 0;
+                }
+            }
+        }
+    }
 
     if !in_scope {
         frame::set_call_id(py_frame, 0);
@@ -354,7 +390,7 @@ unsafe fn handle_line(_py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFram
 
 unsafe fn handle_return(py_frame: *mut ffi::PyObject, _frame_obj: *mut ffi::PyFrameObject) -> std::ffi::c_int {
     let cid = frame::get_call_id(py_frame);
-    if cid == 0 {
+    if cid == 0 || cid == u64::MAX {
         return 0;
     }
 
@@ -394,7 +430,8 @@ unsafe fn handle_return(py_frame: *mut ffi::PyObject, _frame_obj: *mut ffi::PyFr
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-pub fn install(py: Python<'_>, hook: PyObject, prefixes: Vec<String>) -> PyResult<()> {
+#[pyo3(signature = (hook, prefixes, taint_patterns=None))]
+pub fn install(py: Python<'_>, hook: PyObject, prefixes: Vec<String>, taint_patterns: Option<Vec<String>>) -> PyResult<()> {
     unsafe {
         // Store hook reference
         if !HOOK_OBJ.is_null() {
@@ -409,6 +446,7 @@ pub fn install(py: Python<'_>, hook: PyObject, prefixes: Vec<String>) -> PyResul
             .collect();
         PREFIXES = Some(pfx);
         SCOPE_CACHE = Some(std::collections::HashMap::new());
+        TAINT_PATTERNS = taint_patterns.map(|v| v.into_iter().filter(|s| !s.is_empty()).collect());
 
         NEXT_CALL_ID.store(1, Ordering::Relaxed);
         ENABLED.store(true, Ordering::Relaxed);
