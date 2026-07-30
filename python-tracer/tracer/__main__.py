@@ -21,6 +21,7 @@ from tracer._tracer import (
 from tracer.ast_index import AstIndex
 from tracer.ipc import patch_message_queue
 from tracer.postprocess import postprocess
+from tracer.process_hook import ProcessHook
 
 
 class TraceHook:
@@ -216,6 +217,17 @@ def main() -> None:
     prefixes = list(path_filter._prefixes)
     install(hook, prefixes, taint_patterns=args.taint_notrace)
 
+    # Monkey-patch multiprocessing to trace child processes
+    output_dir = args.output + ".d"
+    proc_hook = ProcessHook(
+        output_dir=output_dir,
+        prefixes=prefixes,
+        tracked_file=args.tracked,
+        taint_patterns=args.taint_notrace,
+        no_postprocess=args.no_postprocess,
+    )
+    proc_hook.install()
+
     # Monkey-patch Thread.run for new threads
     _original_run = threading.Thread.run
     def _patched_run(self: threading.Thread) -> None:
@@ -245,7 +257,32 @@ def main() -> None:
         pass
     finally:
         uninstall()
+        proc_hook.uninstall()
         serialize(db, ast_index, args.output)
+
+        # Merge child process traces
+        if os.path.isdir(output_dir):
+            child_dbs = sorted(
+                os.path.join(output_dir, f)
+                for f in os.listdir(output_dir)
+                if f.endswith(".db")
+            )
+            if child_dbs:
+                conn = sqlite3.connect(args.output)
+                for child_db in child_dbs:
+                    print(f"Merging child trace {child_db}", file=sys.stderr)
+                    conn.execute(f"ATTACH DATABASE ? AS child", (child_db,))
+                    conn.execute("INSERT OR IGNORE INTO meta SELECT * FROM child.meta")
+                    conn.execute("INSERT OR IGNORE INTO functions SELECT * FROM child.functions")
+                    conn.execute("INSERT OR REPLACE INTO calls SELECT * FROM child.calls")
+                    conn.execute("INSERT INTO attr_reads SELECT * FROM child.attr_reads")
+                    conn.execute("INSERT OR IGNORE INTO objects SELECT * FROM child.objects")
+                    conn.execute("INSERT INTO members SELECT * FROM child.members")
+                    conn.execute("INSERT INTO ipc SELECT * FROM child.ipc")
+                    conn.execute("DETACH DATABASE child")
+                conn.commit()
+                conn.close()
+
         if not args.no_postprocess:
             postprocess(args.output)
 
