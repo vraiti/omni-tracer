@@ -66,6 +66,12 @@ def main():
         default=None,
         help="Suppress tracing inside functions matching this qualname substring (repeatable)",
     )
+    parser.add_argument(
+        "--prefix",
+        action="append",
+        default=None,
+        help="Scope prefix for tracing (repeatable; omit to auto-detect)",
+    )
     args = parser.parse_args()
 
     model = MODELS[args.model]
@@ -78,11 +84,17 @@ def main():
         for pat in args.taint_notrace:
             taint_args.extend(["--taint-notrace", pat])
 
+    prefix_args = []
+    if args.prefix:
+        for p in args.prefix:
+            prefix_args.extend(["--prefix", p])
+
     cmd = [
         sys.executable, "-m", "tracer",
         "--output", output,
         "--tracked", track_file,
         *taint_args,
+        *prefix_args,
         "--",
         "serve", args.model, "--omni",
         *model["args"],
