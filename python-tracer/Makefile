@@ -2,8 +2,6 @@ PREFIX ?= /usr
 CPYTHON_DIR := cpython
 CPYTHON_BIN := $(CPYTHON_DIR)/python
 NPROC := $(shell nproc)
-BINDIR := $(dir $(shell which python3))
-TRACE_PYTHON := $(BINDIR)trace-python
 
 .PHONY: all cpython wheel install clean
 
@@ -21,7 +19,6 @@ wheel: $(CPYTHON_BIN)
 
 install: wheel
 	cd $(CPYTHON_DIR) && $(MAKE) install
-	ln -sf $(PREFIX)/bin/python3.12 $(TRACE_PYTHON)
 	python3 -m pip install --force-reinstall target/wheels/*.whl
 
 clean:
