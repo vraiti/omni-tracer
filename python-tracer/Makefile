@@ -20,7 +20,8 @@ wheel: $(CPYTHON_BIN)
 	$(CPYTHON_BIN) -m maturin build --release --interpreter $(CPYTHON_BIN)
 
 install: wheel
-	cp $(CPYTHON_BIN) $(TRACE_PYTHON)
+	cd $(CPYTHON_DIR) && $(MAKE) install
+	ln -sf $(PREFIX)/bin/python3.12 $(TRACE_PYTHON)
 	python3 -m pip install --force-reinstall target/wheels/*.whl
 
 clean:
