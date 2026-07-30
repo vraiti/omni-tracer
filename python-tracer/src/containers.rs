@@ -274,14 +274,19 @@ impl TracedList {
         Ok(())
     }
 
-    fn __getitem__(&self, py: Python<'_>, index: isize) -> PyResult<PyObject> {
-        let len = self.inner.bind(py).len();
-        let idx = if index < 0 { (len as isize + index) as usize } else { index as usize };
-        let result = self.inner.bind(py).get_item(idx)?;
-        if idx < self.arws.len() {
-            emit_read(py, &self.arws[idx]);
+    fn __getitem__(&self, py: Python<'_>, index: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let Ok(i) = index.extract::<isize>() {
+            let len = self.inner.bind(py).len();
+            let idx = if i < 0 { (len as isize + i) as usize } else { i as usize };
+            let result = self.inner.bind(py).get_item(idx)?;
+            if idx < self.arws.len() {
+                emit_read(py, &self.arws[idx]);
+            }
+            Ok(result.unbind())
+        } else {
+            let result = self.inner.bind(py).call_method1("__getitem__", (index,))?;
+            Ok(result.unbind())
         }
-        Ok(result.unbind())
     }
 
     fn append(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
