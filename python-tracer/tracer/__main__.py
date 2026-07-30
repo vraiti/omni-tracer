@@ -225,6 +225,11 @@ def main() -> None:
 
     sys.argv = cmd
     script = cmd[0]
+    if not os.path.exists(script):
+        import shutil
+        resolved = shutil.which(script)
+        if resolved:
+            script = resolved
 
     code: Any = None
     with open(script) as f:
