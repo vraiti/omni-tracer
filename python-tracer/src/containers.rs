@@ -497,6 +497,16 @@ impl TracedDeque {
         Ok(result.unbind())
     }
 
+    fn remove(&mut self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let deque = self.inner.bind(py);
+        let idx: usize = deque.call_method1("index", (value,))?.extract()?;
+        if idx < self.arws.len() {
+            self.arws.remove(idx);
+        }
+        deque.call_method1("remove", (value,))?;
+        Ok(())
+    }
+
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
         self.inner.bind(py).call_method0("clear")?;
         self.arws.clear();

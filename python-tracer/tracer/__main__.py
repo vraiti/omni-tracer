@@ -270,18 +270,31 @@ def main() -> None:
 
         child_dbs = proc_hook.child_trace_paths()
         if child_dbs:
+            import time as _time
             conn = sqlite3.connect(args.output)
             for child_db in child_dbs:
                 print(f"Merging child trace {child_db}", file=sys.stderr)
-                conn.execute("ATTACH DATABASE ? AS child", (child_db,))
-                conn.execute("INSERT OR IGNORE INTO meta SELECT * FROM child.meta")
-                conn.execute("INSERT OR IGNORE INTO functions SELECT * FROM child.functions")
-                conn.execute("INSERT INTO calls SELECT * FROM child.calls")
-                conn.execute("INSERT INTO attr_reads SELECT * FROM child.attr_reads")
-                conn.execute("INSERT INTO objects SELECT * FROM child.objects")
-                conn.execute("INSERT INTO members SELECT * FROM child.members")
-                conn.execute("INSERT INTO ipc SELECT * FROM child.ipc")
-                conn.execute("DETACH DATABASE child")
+                for attempt in range(10):
+                    try:
+                        conn.execute("ATTACH DATABASE ? AS child", (child_db,))
+                        conn.execute("INSERT OR IGNORE INTO meta SELECT * FROM child.meta")
+                        conn.execute("INSERT OR IGNORE INTO functions SELECT * FROM child.functions")
+                        conn.execute("INSERT INTO calls SELECT * FROM child.calls")
+                        conn.execute("INSERT INTO attr_reads SELECT * FROM child.attr_reads")
+                        conn.execute("INSERT INTO objects SELECT * FROM child.objects")
+                        conn.execute("INSERT INTO members SELECT * FROM child.members")
+                        conn.execute("INSERT INTO ipc SELECT * FROM child.ipc")
+                        conn.execute("DETACH DATABASE child")
+                        break
+                    except sqlite3.OperationalError:
+                        try:
+                            conn.execute("DETACH DATABASE child")
+                        except Exception:
+                            pass
+                        if attempt < 9:
+                            _time.sleep(1)
+                        else:
+                            print(f"Failed to merge {child_db} after 10 attempts", file=sys.stderr)
             conn.commit()
             conn.close()
 
