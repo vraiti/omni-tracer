@@ -85,6 +85,17 @@ impl TracedSetattr {
         Ok(bound.into_pyobject(py)?.into_any().unbind())
     }
 
+    #[pyo3(signature = (obj, name, value))]
+    fn __call__(
+        &self,
+        py: Python<'_>,
+        obj: &Bound<'_, PyAny>,
+        name: &Bound<'_, PyString>,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        self.call_impl(py, obj, name, value)
+    }
+
     pub fn call_impl(
         &self,
         py: Python<'_>,

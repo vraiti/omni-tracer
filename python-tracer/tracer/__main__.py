@@ -109,6 +109,8 @@ class TraceHook:
 
 
 def serialize(db: Database, ast_index: AstIndex, output: str) -> None:
+    if os.path.exists(output):
+        os.remove(output)
     conn = sqlite3.connect(output)
     c = conn.cursor()
 
