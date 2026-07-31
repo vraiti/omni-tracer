@@ -225,10 +225,6 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
         frame::set_call_id(py_frame, 0);
         frame::set_trace_lines(py_frame, 0);
 
-        // BISECT: skip __init__ check for OOS calls
-        ffi::Py_DECREF(code as *mut ffi::PyObject);
-        return 0;
-
         // Check for __init__ on tracked class
         let co_name = (*code).co_name;
         let mut name_size: ffi::Py_ssize_t = 0;
@@ -239,6 +235,9 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                 name_size as usize,
             ));
             if name == "__init__" {
+                // BISECT: skip get_self_obj_id
+                ffi::Py_DECREF(code as *mut ffi::PyObject);
+                return 0;
                 let (self_obj, _) = get_self_obj_id(py_frame);
                 if let Some(self_ptr) = self_obj {
                     let should_trace = Python::with_gil(|py| {
