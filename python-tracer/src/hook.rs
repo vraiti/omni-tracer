@@ -154,13 +154,13 @@ unsafe extern "C" fn trace_func(
         return 0;
     }
 
-    let frame_obj = py_frame as *mut ffi::PyObject;
-    match what {
-        ffi::PyTrace_CALL => handle_call(frame_obj, py_frame),
-        ffi::PyTrace_LINE => handle_line(frame_obj, py_frame),
-        ffi::PyTrace_RETURN => handle_return(frame_obj, py_frame),
-        _ => 0,
+    // BISECT: skip LINE and RETURN entirely
+    if what != ffi::PyTrace_CALL {
+        return 0;
     }
+
+    let frame_obj = py_frame as *mut ffi::PyObject;
+    return handle_call(frame_obj, py_frame);
 }
 
 unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrameObject) -> std::ffi::c_int {
@@ -199,6 +199,12 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
     };
 
     let in_scope = check_scope(filename_ptr, filename);
+
+    // BISECT: return immediately for OOS calls
+    if !in_scope {
+        ffi::Py_DECREF(code as *mut ffi::PyObject);
+        return 0;
+    }
 
     // Taint origination: check if this function matches a taint pattern
     if let Some(ref patterns) = TAINT_PATTERNS {
