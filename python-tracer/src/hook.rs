@@ -200,12 +200,6 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
 
     let in_scope = check_scope(filename_ptr, filename);
 
-    // BISECT: return immediately for OOS calls
-    if !in_scope {
-        ffi::Py_DECREF(code as *mut ffi::PyObject);
-        return 0;
-    }
-
     // Taint origination: check if this function matches a taint pattern
     if let Some(ref patterns) = TAINT_PATTERNS {
         if !patterns.is_empty() {
@@ -230,6 +224,10 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
     if !in_scope {
         frame::set_call_id(py_frame, 0);
         frame::set_trace_lines(py_frame, 0);
+
+        // BISECT: skip __init__ check for OOS calls
+        ffi::Py_DECREF(code as *mut ffi::PyObject);
+        return 0;
 
         // Check for __init__ on tracked class
         let co_name = (*code).co_name;
