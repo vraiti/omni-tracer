@@ -30,20 +30,15 @@ def poll_health(server):
     while True:
         rc = server.poll()
         if rc is not None:
-            print(f"Process {server.pid} exited with code {rc}", file=sys.stderr)
             return False
 
         try:
             resp = urllib.request.urlopen(HEALTH_URL, timeout=3)
             if resp.status == 200:
-                elapsed = int(time.monotonic() - start)
-                print(f"Server ready ({elapsed // 60}m {elapsed % 60}s)")
                 return True
         except Exception:
             pass
 
-        elapsed = int(time.monotonic() - start)
-        print(f"pid={server.pid} +{elapsed // 60}m{elapsed % 60:02d}s waiting...")
         time.sleep(POLL_INTERVAL)
 
 
@@ -113,7 +108,10 @@ def main():
         *model["args"],
     ]
 
-    server = subprocess.Popen(cmd, start_new_session=True, cwd="/")
+    server = subprocess.Popen(
+        cmd, start_new_session=True, cwd="/",
+        stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr,
+    )
 
     try:
         if not poll_health(server):
@@ -122,10 +120,7 @@ def main():
 
         if not args.no_query:
             query = model.get("query")
-            if not query:
-                print(f"No default query defined for {args.model}", file=sys.stderr)
-            else:
-                print(f"Sending query to {query['url']}")
+            if query:
                 data = json.dumps(query["body"]).encode()
                 req = urllib.request.Request(
                     query["url"],
@@ -133,12 +128,10 @@ def main():
                     headers={"Content-Type": "application/json"},
                 )
                 try:
-                    resp = urllib.request.urlopen(req, timeout=120)
-                    print(f"Query returned {resp.status}")
-                except Exception as exc:
-                    print(f"Query failed: {exc}", file=sys.stderr)
+                    urllib.request.urlopen(req, timeout=120)
+                except Exception:
+                    pass
 
-        print(f"Sending SIGTERM to pid {server.pid}")
         os.killpg(server.pid, signal.SIGTERM)
         server.wait()
     except KeyboardInterrupt:

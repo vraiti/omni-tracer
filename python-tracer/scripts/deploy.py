@@ -7,12 +7,16 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPTS_DIR)
 
 def out(cmd):
-    print(f"+ {cmd}")
-    return subprocess.check_output(cmd, shell=True, cwd=PROJECT_DIR, text=True).strip()
+    return subprocess.check_output(
+        cmd, shell=True, cwd=PROJECT_DIR, text=True,
+        stdin=sys.stdin, stderr=sys.stderr,
+    ).strip()
 
 def run(cmd):
-    print(f"+ {cmd}")
-    subprocess.check_call(cmd, shell=True, cwd=PROJECT_DIR)
+    subprocess.check_call(
+        cmd, shell=True, cwd=PROJECT_DIR,
+        stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr,
+    )
 
 head_before = out("git rev-parse HEAD")
 run("git pull --recurse-submodules")
