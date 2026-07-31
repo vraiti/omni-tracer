@@ -14,7 +14,7 @@ TRACER_SO := tracer/_tracer$(EXT_SUFFIX)
 TRACER_SRCS := $(wildcard csrc/*.c)
 TRACER_HDRS := $(wildcard csrc/*.h)
 
-.PHONY: all cpython wheel install clean ext
+.PHONY: all cpython install clean ext
 
 all: ext
 
@@ -31,17 +31,11 @@ cpython: $(CPYTHON_BIN)
 $(CPYTHON_BIN):
 	cd $(CPYTHON_DIR) && ./configure --prefix=$(PREFIX) && $(MAKE) -j$(NPROC)
 
-wheel: $(CPYTHON_BIN)
-	$(CPYTHON_BIN) -m ensurepip --upgrade
-	$(CPYTHON_BIN) -m pip install maturin
-	$(CPYTHON_BIN) -m maturin build --release --interpreter $(CPYTHON_BIN)
-
-install: wheel
+install: cpython ext
 	cd $(CPYTHON_DIR) && $(MAKE) install
-	$(PREFIX)/bin/python3.12 -m pip install --force-reinstall target/wheels/*.whl
-	ln -sf $(PREFIX)/bin/python3.12 /usr/local/bin/trace-python
+	install -m 644 $(TRACER_SO) $(PREFIX)/lib/python3.12/site-packages/tracer/
+	cp -r tracer $(PREFIX)/lib/python3.12/site-packages/
 
 clean:
 	cd $(CPYTHON_DIR) && $(MAKE) clean 2>/dev/null || true
-	rm -rf target/
 	rm -f $(TRACER_SO)

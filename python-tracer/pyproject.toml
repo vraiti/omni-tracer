@@ -1,15 +1,4 @@
-[build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
-
 [project]
 name = "python-tracer"
 version = "0.1.0"
 requires-python = ">=3.12"
-
-[project.scripts]
-python-tracer = "tracer.__main__:main"
-
-[tool.maturin]
-features = ["pyo3/extension-module"]
-module-name = "tracer._tracer"
