@@ -154,13 +154,13 @@ unsafe extern "C" fn trace_func(
         return 0;
     }
 
-    // BISECT: skip LINE and RETURN entirely
-    if what != ffi::PyTrace_CALL {
-        return 0;
-    }
-
     let frame_obj = py_frame as *mut ffi::PyObject;
-    return handle_call(frame_obj, py_frame);
+    match what {
+        ffi::PyTrace_CALL => handle_call(frame_obj, py_frame),
+        ffi::PyTrace_LINE => handle_line(frame_obj, py_frame),
+        ffi::PyTrace_RETURN => handle_return(frame_obj, py_frame),
+        _ => 0,
+    }
 }
 
 unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrameObject) -> std::ffi::c_int {
@@ -235,13 +235,7 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                 name_size as usize,
             ));
             if name == "__init__" {
-                // BISECT: disable tracing around get_self_obj_id to test recursion theory
-                ENABLED.store(false, Ordering::Relaxed);
                 let (self_obj, _) = get_self_obj_id(py_frame);
-                ENABLED.store(true, Ordering::Relaxed);
-                // BISECT: return after get_self_obj_id, skip is_tracked_class
-                ffi::Py_DECREF(code as *mut ffi::PyObject);
-                return 0;
                 if let Some(self_ptr) = self_obj {
                     let should_trace = Python::with_gil(|py| {
                         if let Some(ref filter) = FILTER_OBJ {
@@ -621,16 +615,16 @@ unsafe fn get_or_assign_function_id(ref_str: &str) -> i32 {
     id
 }
 
+const LOCALSPLUS_OFFSET: usize = 72;
+
 unsafe fn get_self_obj_id(py_frame: *mut ffi::PyObject) -> (Option<*mut ffi::PyObject>, i32) {
-    let f_locals_str = std::ffi::CStr::from_bytes_with_nul_unchecked(b"f_locals\0");
-    let locals = ffi::PyObject_GetAttrString(py_frame, f_locals_str.as_ptr());
-    if locals.is_null() {
-        ffi::PyErr_Clear();
+    let frame = py_frame as *mut frame::PyFrameObject;
+    let f_frame = (*frame).f_frame;
+    if f_frame.is_null() {
         return (None, 0);
     }
-    let self_key = std::ffi::CStr::from_bytes_with_nul_unchecked(b"self\0");
-    let self_obj = ffi::PyDict_GetItemString(locals, self_key.as_ptr());
-    ffi::Py_DECREF(locals);
+    let localsplus = f_frame.add(LOCALSPLUS_OFFSET) as *const *mut ffi::PyObject;
+    let self_obj = *localsplus;
     if self_obj.is_null() {
         return (None, 0);
     }
