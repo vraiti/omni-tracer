@@ -235,7 +235,10 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                 name_size as usize,
             ));
             if name == "__init__" {
+                // BISECT: disable tracing around get_self_obj_id to test recursion theory
+                ENABLED.store(false, Ordering::Relaxed);
                 let (self_obj, _) = get_self_obj_id(py_frame);
+                ENABLED.store(true, Ordering::Relaxed);
                 // BISECT: return after get_self_obj_id, skip is_tracked_class
                 ffi::Py_DECREF(code as *mut ffi::PyObject);
                 return 0;
