@@ -1,5 +1,5 @@
 #include "hook.h"
-#include "frame.h"
+#include "internal/pycore_frame.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -109,8 +109,8 @@ static int32_t get_or_assign_function_id(const char *ref_str) {
 static PyObject *get_self_obj(PyObject *py_frame, PyCodeObject *code) {
     if (code->co_argcount < 1)
         return NULL;
-    TracerFrameObject *frame = (TracerFrameObject *)py_frame;
-    TracerInterpreterFrame *iframe = (TracerInterpreterFrame *)frame->f_frame;
+    PyFrameObject *frame = (PyFrameObject *)py_frame;
+    _PyInterpreterFrame *iframe = (_PyInterpreterFrame *)frame->f_frame;
     if (!iframe) return NULL;
     PyObject *self_obj = iframe->localsplus[0];
     return self_obj;
@@ -198,11 +198,11 @@ static int handle_call(PyObject *py_frame, PyFrameObject *frame_obj) {
     /* taint propagation */
     PyFrameObject *back = PyFrame_GetBack(frame_obj);
     if (back) {
-        uint64_t caller_cid = ((TracerFrameObject *)back)->call_id;
+        uint64_t caller_cid = ((PyFrameObject *)back)->call_id;
         Py_DECREF((PyObject *)back);
         if (caller_cid == UINT64_MAX) {
-            ((TracerFrameObject *)py_frame)->call_id = UINT64_MAX;
-            ((TracerFrameObject *)py_frame)->f_trace_lines = 0;
+            ((PyFrameObject *)py_frame)->call_id = UINT64_MAX;
+            ((PyFrameObject *)py_frame)->f_trace_lines = 0;
             return 0;
         }
     }
@@ -230,8 +230,8 @@ static int handle_call(PyObject *py_frame, PyFrameObject *frame_obj) {
         if (qualname) {
             for (Py_ssize_t i = 0; i < g_state.taint_count; i++) {
                 if (strstr(qualname, g_state.taint_patterns[i])) {
-                    ((TracerFrameObject *)py_frame)->call_id = UINT64_MAX;
-                    ((TracerFrameObject *)py_frame)->f_trace_lines = 0;
+                    ((PyFrameObject *)py_frame)->call_id = UINT64_MAX;
+                    ((PyFrameObject *)py_frame)->f_trace_lines = 0;
                     Py_DECREF(code);
                     return 0;
                 }
@@ -240,8 +240,8 @@ static int handle_call(PyObject *py_frame, PyFrameObject *frame_obj) {
     }
 
     if (!in_scope) {
-        ((TracerFrameObject *)py_frame)->call_id = 0;
-        ((TracerFrameObject *)py_frame)->f_trace_lines = 0;
+        ((PyFrameObject *)py_frame)->call_id = 0;
+        ((PyFrameObject *)py_frame)->f_trace_lines = 0;
 
         /* check for __init__ on tracked class */
         PyObject *co_name = code->co_name;
@@ -274,7 +274,7 @@ static int handle_call(PyObject *py_frame, PyFrameObject *frame_obj) {
                         int call_lineno = 0;
                         PyFrameObject *back2 = PyFrame_GetBack(frame_obj);
                         if (back2) {
-                            caller_id = ((TracerFrameObject *)back2)->call_id;
+                            caller_id = ((PyFrameObject *)back2)->call_id;
                             call_lineno = PyFrame_GetLineNumber(back2);
                             Py_DECREF((PyObject *)back2);
                         }
@@ -286,8 +286,8 @@ static int handle_call(PyObject *py_frame, PyFrameObject *frame_obj) {
                             snprintf(ref_buf, sizeof(ref_buf), "%s:%s", filename, qn);
                             int32_t function_id = get_or_assign_function_id(ref_buf);
 
-                            ((TracerFrameObject *)py_frame)->call_id = call_id;
-                            ((TracerFrameObject *)py_frame)->f_trace_lines = 1;
+                            ((PyFrameObject *)py_frame)->call_id = call_id;
+                            ((PyFrameObject *)py_frame)->f_trace_lines = 1;
 
                             DatabaseObject *db = (DatabaseObject *)g_state.db;
                             PyObject *rec = PyObject_CallFunction(
@@ -317,13 +317,13 @@ static int handle_call(PyObject *py_frame, PyFrameObject *frame_obj) {
 
     /* in-scope call */
     uint64_t call_id = g_state.next_call_id++;
-    ((TracerFrameObject *)py_frame)->call_id = call_id;
+    ((PyFrameObject *)py_frame)->call_id = call_id;
 
     uint64_t caller_id = 0;
     int call_lineno = 0;
     PyFrameObject *back3 = PyFrame_GetBack(frame_obj);
     if (back3) {
-        caller_id = ((TracerFrameObject *)back3)->call_id;
+        caller_id = ((PyFrameObject *)back3)->call_id;
         call_lineno = PyFrame_GetLineNumber(back3);
         Py_DECREF((PyObject *)back3);
     }
@@ -363,7 +363,7 @@ static int handle_call(PyObject *py_frame, PyFrameObject *frame_obj) {
     push_traced_frame(call_id, rec, ref_buf);
     Py_DECREF(rec);
 
-    ((TracerFrameObject *)py_frame)->f_trace_lines = 1;
+    ((PyFrameObject *)py_frame)->f_trace_lines = 1;
     Py_DECREF(code);
     return 0;
 }
@@ -393,7 +393,7 @@ static int handle_line(PyObject *py_frame, PyFrameObject *frame_obj) {
 }
 
 static int handle_return(PyObject *py_frame, PyFrameObject *frame_obj) {
-    uint64_t cid = ((TracerFrameObject *)py_frame)->call_id;
+    uint64_t cid = ((PyFrameObject *)py_frame)->call_id;
     if (cid == 0 || cid == UINT64_MAX) return 0;
 
     while (g_state.frame_count > 0) {
@@ -530,7 +530,7 @@ static PyObject *py_uninstall(PyObject *self, PyObject *Py_UNUSED(args)) {
 }
 
 static PyObject *py_get_call_id(PyObject *self, PyObject *frame) {
-    uint64_t cid = ((TracerFrameObject *)frame)->call_id;
+    uint64_t cid = ((PyFrameObject *)frame)->call_id;
     return PyLong_FromUnsignedLongLong(cid);
 }
 
@@ -539,7 +539,7 @@ static PyObject *py_set_call_id(PyObject *self, PyObject *args) {
     uint64_t cid;
     if (!PyArg_ParseTuple(args, "OK", &frame, &cid))
         return NULL;
-    ((TracerFrameObject *)frame)->call_id = cid;
+    ((PyFrameObject *)frame)->call_id = cid;
     Py_RETURN_NONE;
 }
 

@@ -1,5 +1,5 @@
 #include "ownership.h"
-#include "frame.h"
+#include "internal/pycore_frame.h"
 #include <string.h>
 
 /* forward declaration from containers.c */
@@ -83,7 +83,7 @@ static PyObject *traced_setattr_call_impl(TracedSetattrObject *ts,
     PyFrameObject *frame_ptr = PyEval_GetFrame();
     if (!frame_ptr) Py_RETURN_NONE;
 
-    uint64_t caller_id = ((TracerFrameObject *)frame_ptr)->call_id;
+    uint64_t caller_id = ((PyFrameObject *)frame_ptr)->call_id;
     int call_lineno = PyFrame_GetLineNumber(frame_ptr);
 
     PyObject *arw = PyObject_CallFunction((PyObject *)AttrRecordWriteType,
@@ -354,7 +354,7 @@ static PyObject *traced_getattr_call_impl(TracedGetattrObject *tg,
 
     PyFrameObject *frame_ptr = PyEval_GetFrame();
     if (frame_ptr) {
-        uint64_t caller_id = ((TracerFrameObject *)frame_ptr)->call_id;
+        uint64_t caller_id = ((PyFrameObject *)frame_ptr)->call_id;
         int read_lineno = PyFrame_GetLineNumber(frame_ptr);
         int write_lineno = ((AttrRecordWriteObject *)arw)->call_lineno;
 

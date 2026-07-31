@@ -1,5 +1,5 @@
 #include "containers.h"
-#include "frame.h"
+#include "internal/pycore_frame.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -12,7 +12,7 @@ static ArwEntry caller_arw(void) {
     ArwEntry e = {0, 0};
     PyFrameObject *frame = PyEval_GetFrame();
     if (!frame) return e;
-    e.caller_id = ((TracerFrameObject *)frame)->call_id;
+    e.caller_id = ((PyFrameObject *)frame)->call_id;
     e.call_lineno = PyFrame_GetLineNumber(frame);
     return e;
 }
@@ -22,7 +22,7 @@ static void emit_read(const ArwEntry *arw) {
     if (!frame) return;
     PyObject *rec = py_current_record(NULL, NULL);
     if (!rec || rec == Py_None) { Py_XDECREF(rec); return; }
-    uint64_t caller_id = ((TracerFrameObject *)frame)->call_id;
+    uint64_t caller_id = ((PyFrameObject *)frame)->call_id;
     int lineno = PyFrame_GetLineNumber(frame);
     PyObject *attr_read = PyObject_CallFunction(
         (PyObject *)AttrRecordReadType,
