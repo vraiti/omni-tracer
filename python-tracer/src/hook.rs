@@ -235,7 +235,7 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                 name_size as usize,
             ));
             if name == "__init__" {
-                let (self_obj, _) = get_self_obj_id(py_frame);
+                let (self_obj, _) = get_self_obj_id(py_frame, code);
                 if let Some(self_ptr) = self_obj {
                     let should_trace = Python::with_gil(|py| {
                         if let Some(ref filter) = FILTER_OBJ {
@@ -355,7 +355,7 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
     let ref_str = format!("{}:{}", filename, qualname);
     let function_id = get_or_assign_function_id(&ref_str);
 
-    let (self_obj, mut obj_id) = get_self_obj_id(py_frame);
+    let (self_obj, mut obj_id) = get_self_obj_id(py_frame, code);
 
     Python::with_gil(|py| {
         let db = DB_OBJ.as_ref().unwrap();
@@ -617,7 +617,10 @@ unsafe fn get_or_assign_function_id(ref_str: &str) -> i32 {
 
 const LOCALSPLUS_OFFSET: usize = 72;
 
-unsafe fn get_self_obj_id(py_frame: *mut ffi::PyObject) -> (Option<*mut ffi::PyObject>, i32) {
+unsafe fn get_self_obj_id(py_frame: *mut ffi::PyObject, code: *mut ffi::PyCodeObject) -> (Option<*mut ffi::PyObject>, i32) {
+    if (*code).co_argcount < 1 {
+        return (None, 0);
+    }
     let frame = py_frame as *mut frame::PyFrameObject;
     let f_frame = (*frame).f_frame;
     if f_frame.is_null() {
