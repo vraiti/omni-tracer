@@ -230,6 +230,9 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                 name_size as usize,
             ));
             if name == "__init__" {
+                // BISECT: skip entire __init__ block
+                ffi::Py_DECREF(code as *mut ffi::PyObject);
+                return 0;
                 let (self_obj, _) = get_self_obj_id(py_frame, code);
                 if let Some(self_ptr) = self_obj {
                     let py = Python::assume_gil_acquired();
