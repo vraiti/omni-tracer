@@ -3,7 +3,7 @@ use pyo3::ffi;
 use pyo3::types::{PyByteArray, PySet};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
 use crate::frame;
 use crate::filter::PathFilter;
@@ -14,7 +14,7 @@ use crate::records::{CallRecord, Database, ObjectRecord};
 // Global state
 // ---------------------------------------------------------------------------
 
-static NEXT_CALL_ID: AtomicU64 = AtomicU64::new(1);
+static mut NEXT_CALL_ID: u64 = 1;
 static ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
@@ -248,7 +248,7 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                     });
 
                     if should_trace {
-                        let call_id = NEXT_CALL_ID.fetch_add(1, Ordering::Relaxed);
+                        let call_id = { let id = NEXT_CALL_ID; NEXT_CALL_ID += 1; id };
 
                         let mut caller_id: u64 = 0;
                         let mut call_lineno: std::ffi::c_int = 0;
@@ -326,7 +326,7 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
     }
 
     // In-scope call
-    let call_id = NEXT_CALL_ID.fetch_add(1, Ordering::Relaxed);
+    let call_id = { let id = NEXT_CALL_ID; NEXT_CALL_ID += 1; id };
     frame::set_call_id(py_frame, call_id);
 
     let mut caller_id: u64 = 0;
@@ -510,7 +510,7 @@ pub fn install(
         SCOPE_CACHE = Some(std::collections::HashMap::new());
         TAINT_PATTERNS = taint_patterns.map(|v| v.into_iter().filter(|s| !s.is_empty()).collect());
 
-        NEXT_CALL_ID.store(1, Ordering::Relaxed);
+        NEXT_CALL_ID = 1;
         ENABLED.store(true, Ordering::Relaxed);
 
         ffi::PyEval_SetTrace(Some(trace_func), HOOK_OBJ);
