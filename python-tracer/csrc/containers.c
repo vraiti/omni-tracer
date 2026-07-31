@@ -203,7 +203,7 @@ static PyObject *TracedDict_pop(PyObject *self, PyObject *args) {
     if (def)
         result = PyObject_CallMethod(o->inner, "pop", "OO", key, def);
     else
-        result = PyObject_CallMethod(o->inner, "pop", "O", key);
+        result = PyObject_CallMethod(o->inner, "pop", "(O)", key);
     return result;
 }
 
@@ -421,7 +421,7 @@ static PyObject *TracedList_subscript(PyObject *self, PyObject *key) {
         Py_INCREF(val);
         return val;
     }
-    return PyObject_CallMethod(o->inner, "__getitem__", "O", key);
+    return PyObject_CallMethod(o->inner, "__getitem__", "(O)", key);
 }
 
 static int TracedList_ass_sub(PyObject *self, PyObject *key, PyObject *value) {
@@ -458,7 +458,7 @@ static PyObject *TracedList_extend(PyObject *self, PyObject *values) {
     TracedListObject *o = (TracedListObject *)self;
     ArwEntry arw = caller_arw();
     size_t start = (size_t)PyList_GET_SIZE(o->inner);
-    PyObject *r = PyObject_CallMethod(o->inner, "extend", "O", values);
+    PyObject *r = PyObject_CallMethod(o->inner, "extend", "(O)", values);
     if (!r) return NULL;
     Py_DECREF(r);
     size_t new_len = (size_t)PyList_GET_SIZE(o->inner);
@@ -503,7 +503,7 @@ static PyObject *TracedList_pop(PyObject *self, PyObject *args) {
 
 static PyObject *TracedList_remove(PyObject *self, PyObject *value) {
     TracedListObject *o = (TracedListObject *)self;
-    PyObject *idx_obj = PyObject_CallMethod(o->inner, "index", "O", value);
+    PyObject *idx_obj = PyObject_CallMethod(o->inner, "index", "(O)", value);
     if (!idx_obj) return NULL;
     Py_ssize_t idx = PyLong_AsSsize_t(idx_obj);
     Py_DECREF(idx_obj);
@@ -512,7 +512,7 @@ static PyObject *TracedList_remove(PyObject *self, PyObject *value) {
                 (o->arw_count - (size_t)idx - 1) * sizeof(ArwEntry));
         o->arw_count--;
     }
-    return PyObject_CallMethod(o->inner, "remove", "O", value);
+    return PyObject_CallMethod(o->inner, "remove", "(O)", value);
 }
 
 static PyObject *TracedList_clear(PyObject *self, PyObject *Py_UNUSED(args)) {
@@ -529,7 +529,7 @@ static PyObject *TracedList_copy(PyObject *self, PyObject *Py_UNUSED(args)) {
 }
 
 static PyObject *TracedList_add(PyObject *self, PyObject *other) {
-    return PyObject_CallMethod(((TracedListObject *)self)->inner, "__add__", "O", other);
+    return PyObject_CallMethod(((TracedListObject *)self)->inner, "__add__", "(O)", other);
 }
 
 static PyObject *TracedList_reduce(PyObject *self, PyObject *Py_UNUSED(args)) {
@@ -707,7 +707,7 @@ static PyObject *TracedDeque_setitem(PyObject *self, PyObject *args) {
 
 static PyObject *TracedDeque_append(PyObject *self, PyObject *value) {
     TracedDequeObject *o = (TracedDequeObject *)self;
-    PyObject *r = PyObject_CallMethod(o->inner, "append", "O", value);
+    PyObject *r = PyObject_CallMethod(o->inner, "append", "(O)", value);
     if (!r) return NULL;
     Py_DECREF(r);
     td_ensure_cap(o, o->arw_count + 1);
@@ -717,7 +717,7 @@ static PyObject *TracedDeque_append(PyObject *self, PyObject *value) {
 
 static PyObject *TracedDeque_appendleft(PyObject *self, PyObject *value) {
     TracedDequeObject *o = (TracedDequeObject *)self;
-    PyObject *r = PyObject_CallMethod(o->inner, "appendleft", "O", value);
+    PyObject *r = PyObject_CallMethod(o->inner, "appendleft", "(O)", value);
     if (!r) return NULL;
     Py_DECREF(r);
     td_ensure_cap(o, o->arw_count + 1);
@@ -731,7 +731,7 @@ static PyObject *TracedDeque_extend(PyObject *self, PyObject *values) {
     TracedDequeObject *o = (TracedDequeObject *)self;
     ArwEntry arw = caller_arw();
     Py_ssize_t start = PyObject_Length(o->inner);
-    PyObject *r = PyObject_CallMethod(o->inner, "extend", "O", values);
+    PyObject *r = PyObject_CallMethod(o->inner, "extend", "(O)", values);
     if (!r) return NULL;
     Py_DECREF(r);
     Py_ssize_t new_len = PyObject_Length(o->inner);
@@ -746,7 +746,7 @@ static PyObject *TracedDeque_extendleft(PyObject *self, PyObject *values) {
     TracedDequeObject *o = (TracedDequeObject *)self;
     ArwEntry arw = caller_arw();
     Py_ssize_t start = PyObject_Length(o->inner);
-    PyObject *r = PyObject_CallMethod(o->inner, "extendleft", "O", values);
+    PyObject *r = PyObject_CallMethod(o->inner, "extendleft", "(O)", values);
     if (!r) return NULL;
     Py_DECREF(r);
     Py_ssize_t new_len = PyObject_Length(o->inner);
@@ -780,7 +780,7 @@ static PyObject *TracedDeque_popleft(PyObject *self, PyObject *Py_UNUSED(args)) 
 
 static PyObject *TracedDeque_remove(PyObject *self, PyObject *value) {
     TracedDequeObject *o = (TracedDequeObject *)self;
-    PyObject *idx_obj = PyObject_CallMethod(o->inner, "index", "O", value);
+    PyObject *idx_obj = PyObject_CallMethod(o->inner, "index", "(O)", value);
     if (idx_obj) {
         Py_ssize_t idx = PyLong_AsSsize_t(idx_obj);
         Py_DECREF(idx_obj);
@@ -792,7 +792,7 @@ static PyObject *TracedDeque_remove(PyObject *self, PyObject *value) {
     } else {
         PyErr_Clear();
     }
-    return PyObject_CallMethod(o->inner, "remove", "O", value);
+    return PyObject_CallMethod(o->inner, "remove", "(O)", value);
 }
 
 static PyObject *TracedDeque_clear(PyObject *self, PyObject *Py_UNUSED(args)) {
