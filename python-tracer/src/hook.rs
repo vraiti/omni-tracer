@@ -235,10 +235,10 @@ unsafe fn handle_call(py_frame: *mut ffi::PyObject, frame_obj: *mut ffi::PyFrame
                 name_size as usize,
             ));
             if name == "__init__" {
-                // BISECT: skip get_self_obj_id
+                let (self_obj, _) = get_self_obj_id(py_frame);
+                // BISECT: return after get_self_obj_id, skip is_tracked_class
                 ffi::Py_DECREF(code as *mut ffi::PyObject);
                 return 0;
-                let (self_obj, _) = get_self_obj_id(py_frame);
                 if let Some(self_ptr) = self_obj {
                     let should_trace = Python::with_gil(|py| {
                         if let Some(ref filter) = FILTER_OBJ {
