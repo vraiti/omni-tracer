@@ -149,7 +149,8 @@ def main() -> None:
     ownership = OwnershipHook(db, hook)
 
     load_ast_data(ast_index._func_to_id, ast_index._control_flow_lines)
-
+    
+    print("[__main__] Installing hooks")
     patch_message_queue(db)
 
     # Install trace function
@@ -172,6 +173,7 @@ def main() -> None:
         _original_run(self)
     threading.Thread.run = _patched_run  # type: ignore
 
+    print("[__main__] launching command")
     cmd = args.command
     if cmd[0] == "--":
         cmd = cmd[1:]
