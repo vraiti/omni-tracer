@@ -81,19 +81,6 @@ def main():
 
     prefix_args = []
     prefixes = args.prefix
-    if not prefixes:
-        import importlib
-        prefixes = []
-        for pkg in ("vllm_omni", "vllm", "janus"):
-            try:
-                mod = importlib.import_module(pkg)
-                path = getattr(mod, "__path__", None)
-                if path:
-                    prefixes.extend(path)
-                elif hasattr(mod, "__file__") and mod.__file__:
-                    prefixes.append(os.path.dirname(mod.__file__))
-            except ImportError:
-                pass
     for p in prefixes:
         prefix_args.extend(["--prefix", p])
 
